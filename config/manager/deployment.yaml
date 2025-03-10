@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: namespace-cleaner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: namespace-cleaner
+  template:
+    metadata:
+      labels:
+        app: namespace-cleaner
+    spec:
+      serviceAccountName: namespace-cleaner-sa
+      containers:
+        - name: manager
+          image: your-registry/namespace-cleaner:latest
+          env:
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-creds
+                  key: tenantId
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-creds
+                  key: clientId
+            - name: AZURE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: azure-creds
+                  key: clientSecret
+            - name: GRACE_PERIOD
+              value: "48h"
