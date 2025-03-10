@@ -66,7 +66,7 @@ Usage
    kubectl apply -f examples/test-namespace.yaml
 
 2. Check controller logs:
-   kubectl logs -l app=namespace-cleaner --follow
+   kubectl logs -l app=namespace-auditor --follow
 
 3. When the associated Azure AD user is deleted:
    - Namespace will be annotated with deletion timestamp
