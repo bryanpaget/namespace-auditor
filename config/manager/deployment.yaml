@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: namespace-cleaner
+  name: namespace-auditor
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: namespace-cleaner
+      app: namespace-auditor
   template:
     metadata:
       labels:
-        app: namespace-cleaner
+        app: namespace-auditor
     spec:
-      serviceAccountName: namespace-cleaner-sa
+      serviceAccountName: namespace-auditor-sa
       containers:
         - name: manager
-          image: your-registry/namespace-cleaner:latest
+          image: bryanpaget/namespace-auditor:latest
           env:
             - name: AZURE_TENANT_ID
               valueFrom:

@@ -13,11 +13,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/yourorg/namespace-cleaner/internal/graph"
+	"github.com/bryanpaget/namespace-auditor/internal/graph"
 )
 
 const (
-	deletionAnnotation = "namespace-cleaner/delete-at"
+	deletionAnnotation = "namespace-auditor/delete-at"
 	userEmailLabel     = "user-email"
 )
 
