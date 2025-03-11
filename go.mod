@@ -1,4 +1,4 @@
-module github.com/yourorg/namespace-cleaner
+module github.com/bryanpaget/namespace-auditor
 
 go 1.18
 

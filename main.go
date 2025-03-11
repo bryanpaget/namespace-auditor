@@ -1,19 +1,17 @@
 package main
 
 import (
-	"context"
 	"os"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/go-logr/logr"
+	v1 "github.com/bryanpaget/namespace-auditor/api/v1"
+	"github.com/bryanpaget/namespace-auditor/internal/graph"
 )
 
 var (
@@ -52,7 +50,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	graphClient := NewGraphClient(cred)
+	graphClient := graph.NewGraphClient(cred)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -62,9 +60,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	reconciler := &NamespaceReconciler{
+	reconciler := &v1.NamespaceReconciler{
 		Client:      mgr.GetClient(),
 		Log:         ctrl.Log.WithName("controllers").WithName("Namespace"),
+		Scheme:      mgr.GetScheme(),
 		GraphClient: graphClient,
 		GracePeriod: gracePeriod,
 	}
