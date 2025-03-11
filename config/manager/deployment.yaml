@@ -12,10 +12,10 @@ spec:
       labels:
         app: namespace-auditor
     spec:
-      serviceAccountName: namespace-auditor-sa
+      serviceAccountName: default
       containers:
         - name: manager
-          image: bryanpaget/namespace-auditor:latest
+          image: bryanpaget/namespace-auditor:0.1.0
           env:
             - name: AZURE_TENANT_ID
               valueFrom:
