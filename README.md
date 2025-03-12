@@ -153,6 +153,16 @@ flowchart TD
     I -->|No| K[Run Until Signal]
 ```
 
+### SetupWithManager() Flow
+
+``` mermaid
+flowchart TD
+    A[Start] --> B[Create Controller]
+    B --> C[Watch Namespaces]
+    C --> D[Filter by owner Annotation]
+    D --> E[Complete Setup]
+```
+
 ### Reconcile() Function Detailed Flow
 
 ``` mermaid
@@ -162,10 +172,12 @@ flowchart TD
     C -->|No| D[Return]
     C -->|Yes| E{DeletionTimestamp?}
     E -->|Yes| F[Log & Return]
-    E -->|No| G{user-email Label?}
+    E -->|No| G{owner Annotation?}
     G -->|No| H[Return]
-    G -->|Yes| I[Check Entra ID]
-    I --> J{User Exists?}
+    G -->|Yes| I[Validate Domain]
+    I -->|Invalid| J[Return]
+    I -->|Valid| K[Check Entra ID]
+    K --> L{User Exists?}
     J -->|Yes| K{Annotation Present?}
     K -->|Yes| L[Remove Annotation]
     K -->|No| M[Return]
@@ -176,16 +188,6 @@ flowchart TD
     P -->|Yes| R{Grace Expired?}
     R -->|Yes| S[Delete Namespace]
     R -->|No| T[Requeue After Delay]
-```
-
-### SetupWithManager() Flow
-
-``` mermaid
-flowchart TD
-    A[Start] --> B[Create Controller]
-    B --> C[Watch Namespaces]
-    C --> D[Filter by user-email Label]
-    D --> E[Complete Setup]
 ```
 
 ### UserExists() Flow (Azure Check)
