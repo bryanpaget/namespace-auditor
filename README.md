@@ -171,11 +171,11 @@ flowchart TD
     B --> C{Namespace Exists?}
     C -->|No| D[Return]
     C -->|Yes| E{Deletion Timestamp?}
-    E -->|Yes| F[Log "Already Deleting" & Return]
+    E -->|Yes| F[Log 'Already Deleting' & Return]
     E -->|No| G{Has owner Annotation?}
     G -->|No| H[Return]
     G -->|Yes| I[Validate Email Domain]
-    I -->|Invalid| J[Log "Invalid Domain" & Return]
+    I -->|Invalid| J[Log 'Invalid Domain' & Return]
     I -->|Valid| K[Check Entra ID]
     K --> L{User Exists?}
     L -->|Yes| M{Deletion Annotation Present?}
