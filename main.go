@@ -20,46 +20,42 @@ var (
 )
 
 func init() {
-	_ = corev1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme) // Register core Kubernetes types
 }
 
 func main() {
-	ctrl.SetLogger(zap.New())
+	ctrl.SetLogger(zap.New()) // Set up structured logging
 
-	var (
-		tenantID       = os.Getenv("AZURE_TENANT_ID")
-		clientID       = os.Getenv("AZURE_CLIENT_ID")
-		clientSecret   = os.Getenv("AZURE_CLIENT_SECRET")
-		gracePeriodStr = os.Getenv("GRACE_PERIOD")
-	)
-
+	// Load required environment variables
+	tenantID, clientID, clientSecret := os.Getenv("AZURE_TENANT_ID"), os.Getenv("AZURE_CLIENT_ID"), os.Getenv("AZURE_CLIENT_SECRET")
 	if tenantID == "" || clientID == "" || clientSecret == "" {
-		setupLog.Error(nil, "AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET must be set")
+		setupLog.Error(nil, "Missing required Azure credentials (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET)")
 		os.Exit(1)
 	}
 
-	gracePeriod, err := time.ParseDuration(gracePeriodStr)
+	// Parse the grace period for namespace deletion
+	gracePeriod, err := time.ParseDuration(os.Getenv("GRACE_PERIOD"))
 	if err != nil {
-		setupLog.Error(err, "Failed to parse GRACE_PERIOD")
+		setupLog.Error(err, "Invalid GRACE_PERIOD format")
 		os.Exit(1)
 	}
 
+	// Authenticate with Azure using client credentials
 	cred, err := azidentity.NewClientSecretCredential(tenantID, clientID, clientSecret, nil)
 	if err != nil {
-		setupLog.Error(err, "Failed to create Azure credential")
+		setupLog.Error(err, "Failed to authenticate with Azure")
 		os.Exit(1)
 	}
-
 	graphClient := graph.NewGraphClient(cred)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme: scheme,
-	})
+	// Initialize controller manager
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{Scheme: scheme})
 	if err != nil {
-		setupLog.Error(err, "Unable to start manager")
+		setupLog.Error(err, "Failed to start Kubernetes controller manager")
 		os.Exit(1)
 	}
 
+	// Set up the namespace reconciler
 	reconciler := &v1.NamespaceReconciler{
 		Client:      mgr.GetClient(),
 		Log:         ctrl.Log.WithName("controllers").WithName("Namespace"),
@@ -69,13 +65,13 @@ func main() {
 	}
 
 	if err = reconciler.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Unable to create controller", "controller", "Namespace")
+		setupLog.Error(err, "Failed to register namespace controller")
 		os.Exit(1)
 	}
 
-	setupLog.Info("Starting manager")
+	setupLog.Info("Starting controller manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "Problem running manager")
+		setupLog.Error(err, "Controller manager encountered an error")
 		os.Exit(1)
 	}
 }
