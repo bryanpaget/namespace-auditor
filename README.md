@@ -59,8 +59,8 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: user-namespace
-  labels:
-    user-email: "user@statcan.gc.ca"  # Mandatory label
+  annotations:
+    owner: "user.name@statcan.gc.ca"  # or user.name@cloud.statcan.ca
 ```
 
 ## Verification
