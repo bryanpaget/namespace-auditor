@@ -90,7 +90,7 @@ sequenceDiagram
 
     User->>K8s: Create Namespace with Owner Annotation
     K8s->>Controller: Event Trigger
-    loop Every 5m
+    loop Every 1d
         Controller->>AzureAD: Validate User
         AzureAD-->>Controller: Response
         alt Invalid User
