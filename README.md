@@ -168,26 +168,26 @@ flowchart TD
 ``` mermaid
 flowchart TD
     A[Start] --> B[Fetch Namespace]
-    B --> C{Exists?}
+    B --> C{Namespace Exists?}
     C -->|No| D[Return]
-    C -->|Yes| E{DeletionTimestamp?}
-    E -->|Yes| F[Log & Return]
-    E -->|No| G{owner Annotation?}
+    C -->|Yes| E{Deletion Timestamp?}
+    E -->|Yes| F[Log "Already Deleting" & Return]
+    E -->|No| G{Has owner Annotation?}
     G -->|No| H[Return]
-    G -->|Yes| I[Validate Domain]
-    I -->|Invalid| J[Return]
+    G -->|Yes| I[Validate Email Domain]
+    I -->|Invalid| J[Log "Invalid Domain" & Return]
     I -->|Valid| K[Check Entra ID]
     K --> L{User Exists?}
-    J -->|Yes| K{Annotation Present?}
-    K -->|Yes| L[Remove Annotation]
-    K -->|No| M[Return]
-    J -->|No| N{Annotation Exists?}
-    N -->|No| O[Add Annotation]
-    N -->|Yes| P{Valid Timestamp?}
-    P -->|No| Q[Remove Annotation]
-    P -->|Yes| R{Grace Expired?}
-    R -->|Yes| S[Delete Namespace]
-    R -->|No| T[Requeue After Delay]
+    L -->|Yes| M{Deletion Annotation Present?}
+    M -->|Yes| N[Remove Annotation & Update]
+    M -->|No| O[Return]
+    L -->|No| P{Deletion Annotation Exists?}
+    P -->|No| Q[Add Annotation with Timestamp]
+    P -->|Yes| R{Valid Timestamp?}
+    R -->|No| S[Remove Invalid Annotation]
+    R -->|Yes| T{Grace Period Expired?}
+    T -->|Yes| U[Delete Namespace]
+    T -->|No| V[Requeue After Remaining Time]
 ```
 
 ### UserExists() Flow (Azure Check)
