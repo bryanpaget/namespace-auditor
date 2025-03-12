@@ -20,7 +20,7 @@ import (
 
 const (
 	deletionAnnotation = "namespace-auditor/delete-at"
-	userEmailLabel     = "user-email"
+	ownerAnnotation    = "owner"
 )
 
 type NamespaceReconciler struct {
@@ -50,9 +50,11 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Retrieve user email label
-	userEmail, exists := ns.Labels[userEmailLabel]
+	userEmail, exists := ns.Annotations[ownerAnnotation]
 	if !exists || userEmail == "" || !isStatCanEmail(userEmail) {
-		log.Info("Skipping namespace, user email is missing or not from StatCan", "email", userEmail)
+		log.Info("Skipping namespace, owner annotation is missing or invalid",
+			"annotation", ownerAnnotation,
+			"email", userEmail)
 		return reconcile.Result{}, nil
 	}
 
@@ -119,6 +121,7 @@ func (r *NamespaceReconciler) updateNamespace(ctx context.Context, ns *corev1.Na
 
 // Checks if an email belongs to StatCan
 func isStatCanEmail(email string) bool {
+	email = strings.ToLower(email)
 	return strings.HasSuffix(email, "@statcan.gc.ca") || strings.HasSuffix(email, "@cloud.statcan.ca")
 }
 
@@ -126,7 +129,8 @@ func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Namespace{}).
 		WithEventFilter(predicate.NewPredicateFuncs(func(obj client.Object) bool {
-			_, exists := obj.GetLabels()[userEmailLabel]
+			// Watch namespaces with owner annotation
+			_, exists := obj.GetAnnotations()[ownerAnnotation]
 			return exists
 		})).
 		Complete(r)

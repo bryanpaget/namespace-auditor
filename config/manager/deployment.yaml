@@ -34,3 +34,7 @@ spec:
                   key: clientSecret
             - name: GRACE_PERIOD
               value: "48h"
+            - name: METRICS_BIND_ADDRESS
+              value: ":8080"
+            - name: HEALTH_PROBE_BIND_ADDRESS
+              value: ":8081"
