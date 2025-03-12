@@ -1,12 +1,12 @@
 # Namespace Auditor Controller
 
-A Kubernetes controller that automatically cleans up Kubeflow namespaces when their associated Entra ID (Azure AD) user accounts no longer exist.
+A Kubernetes controller for **Statistics Canada** that automatically cleans up Kubeflow namespaces when their associated Entra ID (Azure AD) user accounts no longer exist.
 
 ## Features
-- **Automated Validation:** Checks user existence via Microsoft Graph API
-- **Grace Period:** Configurable safety window before deletion (default: 48h)
-- **Audit Trail:** Annotations track deletion lifecycle
-- **Cluster Native:** Built with controller-runtime
+- **Automated Validation:** Checks user existence via Microsoft Graph API.
+- **Grace Period:** Configurable safety window before deletion (default: 48h).
+- **Audit Trail:** Annotations track deletion lifecycle.
+- **Cluster Native:** Built with controller-runtime.
 
 ```mermaid
 flowchart TD
@@ -60,7 +60,7 @@ kind: Namespace
 metadata:
   name: user-namespace
   labels:
-    user-email: "user@domain.com"  # Mandatory label
+    user-email: "user@statcan.gc.ca"  # Mandatory label
 ```
 
 ## Verification
@@ -98,6 +98,7 @@ sequenceDiagram
             Controller->>K8s: Delete After Grace Period
         end
     end
+
 ```
 
 ## Troubleshooting
