@@ -121,3 +121,88 @@ kubectl auth can-i delete namespaces --as=system:serviceaccount:default:namespac
 - Enable Kubernetes audit logging
 - Consider namespace isolation for production
 - Annotation Validation: Only processes @statcan.gc.ca and @cloud.statcan.ca domains
+
+## Diagrams
+
+### Grace Period Calculation Flow
+
+``` mermaid
+flowchart TD
+    A[Start] --> B[Parse Annotation Time]
+    B --> C{Valid Time?}
+    C -->|No| D[Clear Annotation]
+    C -->|Yes| E[Calculate Remaining Time]
+    E --> F{Time Remaining >0?}
+    F -->|Yes| G[Requeue After Remainder]
+    F -->|No| H[Delete Namespace]
+```
+
+### main() Function Flow
+
+``` mermaid
+flowchart TD
+    A[Start] --> B[Load Env Vars]
+    B --> C{Azure Creds Exist?}
+    C -->|No| D[Exit with Error]
+    C -->|Yes| E[Create Azure Client]
+    E --> F[Create Controller Manager]
+    F --> G[Setup Reconciler]
+    G --> H[Start Manager]
+    H --> I{Error?}
+    I -->|Yes| J[Log Error]
+    I -->|No| K[Run Until Signal]
+```
+
+### SetupWithManager() Flow
+
+``` mermaid
+flowchart TD
+    A[Start] --> B[Create Controller]
+    B --> C[Watch Namespaces]
+    C --> D[Filter by owner Annotation]
+    D --> E[Complete Setup]
+```
+
+### Reconcile() Function Detailed Flow
+
+``` mermaid
+flowchart TD
+    A[Start] --> B[Fetch Namespace]
+    B --> C{Exists?}
+    C -->|No| D[Return]
+    C -->|Yes| E{DeletionTimestamp?}
+    E -->|Yes| F[Log & Return]
+    E -->|No| G{owner Annotation?}
+    G -->|No| H[Return]
+    G -->|Yes| I[Validate Domain]
+    I -->|Invalid| J[Return]
+    I -->|Valid| K[Check Entra ID]
+    K --> L{User Exists?}
+    J -->|Yes| K{Annotation Present?}
+    K -->|Yes| L[Remove Annotation]
+    K -->|No| M[Return]
+    J -->|No| N{Annotation Exists?}
+    N -->|No| O[Add Annotation]
+    N -->|Yes| P{Valid Timestamp?}
+    P -->|No| Q[Remove Annotation]
+    P -->|Yes| R{Grace Expired?}
+    R -->|Yes| S[Delete Namespace]
+    R -->|No| T[Requeue After Delay]
+```
+
+### UserExists() Flow (Azure Check)
+
+``` mermaid
+flowchart TD
+    A[Start] --> B[Get Azure Token]
+    B --> C{Token Valid?}
+    C -->|No| D[Return Error]
+    C -->|Yes| E[Build Graph API Request]
+    E --> F[Send HTTP Request]
+    F --> G{Status Code?}
+    G -->|200| H[Return True]
+    G -->|404| I[Return False]
+    G -->|Other| J[Return Error]
+```
+
+
