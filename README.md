@@ -10,7 +10,7 @@ A Kubernetes controller for **Statistics Canada** that automatically cleans up K
 
 ```mermaid
 flowchart TD
-    A[User Creates Namespace] --> B[Label: user-email=...]
+    A[User Creates Namespace] --> B[Annotation: owner=...]
     B --> C[Controller Detects Namespace]
     C --> D{User Exists in Entra ID?}
     D -->|Yes| E[Leave Namespace]
@@ -72,7 +72,7 @@ kubectl get namespace <NAME> -o jsonpath='{.metadata.annotations}'
 
 **Monitor Deletions:**
 ```bash
-kubectl get namespaces -w -L user-email
+kubectl get namespaces -w -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.owner}{"\n"}{end}'
 ```
 
 **View Logs:**
@@ -88,17 +88,16 @@ sequenceDiagram
     participant Controller
     participant AzureAD
 
-    User->>K8s: Create Labeled Namespace
+    User->>K8s: Create Namespace with Owner Annotation
     K8s->>Controller: Event Trigger
     loop Every 5m
         Controller->>AzureAD: Validate User
         AzureAD-->>Controller: Response
         alt Invalid User
-            Controller->>K8s: Annotate Namespace
+            Controller->>K8s: Add Deletion Annotation
             Controller->>K8s: Delete After Grace Period
         end
     end
-
 ```
 
 ## Troubleshooting
@@ -116,7 +115,9 @@ kubectl auth can-i delete namespaces --as=system:serviceaccount:default:namespac
 ```
 
 ## Security
+
 - Rotate Azure credentials quarterly
 - Limit controller permissions using RBAC
 - Enable Kubernetes audit logging
 - Consider namespace isolation for production
+- Annotation Validation: Only processes @statcan.gc.ca and @cloud.statcan.ca domains
