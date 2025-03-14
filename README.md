@@ -42,9 +42,18 @@ azure-creds:
 ### Deployment
 
 ``` bash
+# First-time setup
+make docker-build docker-push
+kubectl apply -f config/serviceaccount.yaml
+kubectl apply -f config/rbac.yaml
+
+# Regular updates
 kubectl apply -f config/configmap.yaml
 kubectl apply -f config/secret.yaml
-kubectl apply -f cronjob.yaml
+kubectl apply -f config/cronjob.yaml
+
+# Deploy
+make deploy
 ```
 
 ### Verification
