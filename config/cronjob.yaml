@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: namespace-auditor
+spec:
+  schedule: "0 0 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: auditor
+            image: bryanpaget/namespace-auditor:latest
+            env:
+              - name: GRACE_PERIOD  # Upper-case environment variable
+                valueFrom:
+                  configMapKeyRef:
+                    name: namespace-auditor-config
+                    key: grace-period  # Lower-case ConfigMap keyconfig
+              - name: ALLOWED_DOMAINS
+                valueFrom:
+                  configMapKeyRef:
+                    name: namespace-auditor-config
+                    key: allowed-domains
+              - name: AZURE_TENANT_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: azure-creds
+                    key: tenant-id
+              - name: AZURE_CLIENT_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: azure-creds
+                    key: client-id
+              - name: AZURE_CLIENT_SECRET
+                valueFrom:
+                  secretKeyRef:
+                    name: azure-creds
+                    key: client-secret
