@@ -31,7 +31,11 @@ deploy-secret:
 deploy-cronjob:
 	microk8s.kubectl apply -f $(K8S_DIR)/cronjob.yaml
 
-deploy: deploy-config deploy-secret deploy-cronjob
+deploy-rbac:
+	microk8s.kubectl apply -f config/rbac.yaml
+	microk8s.kubectl apply -f config/serviceaccount.yaml
+
+deploy: deploy-rbac deploy-config deploy-secret deploy-cronjob
 
 lint:
 	golangci-lint run
