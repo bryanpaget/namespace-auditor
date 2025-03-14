@@ -1,79 +1,65 @@
-# Makefile for Namespace Auditor
+# Makefile for namespace-auditor
 
-# Project Variables
-APP_NAME ?= namespace-auditor
-VERSION ?= 0.1.0
-IMG ?= bryanpaget/$(APP_NAME):$(VERSION)
-GOOS ?= linux
-GOARCH ?= amd64
-BIN_DIR = bin
+# Configuration
+IMAGE_NAME ?= namespace-auditor
+REGISTRY ?= docker.io/bryanpaget
+TAG ?= latest
+K8S_DIR ?= ./config
 
-# Kubernetes CLI
-KUBECTL ?= kubectl
+.PHONY: all build test docker-build docker-push deploy clean
 
-.PHONY: all
-all: build
+all: docker-build
 
-##@ Development
+build:
+	go build -o bin/auditor main.go
 
-.PHONY: fmt
-fmt: ## Format source code
-	go fmt ./...
+test:
+	go test -v ./...
 
-.PHONY: vet
-vet: ## Run Go vet (static analysis)
-	go vet ./...
+docker-build:
+	docker build -t $(REGISTRY)/$(IMAGE_NAME):$(TAG) .
 
-.PHONY: test
-test: fmt vet ## Run tests with coverage
-	go test ./... -coverprofile=cover.out
+docker-push:
+	docker push $(REGISTRY)/$(IMAGE_NAME):$(TAG)
 
-.PHONY: build
-build: ## Build the application binary
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(BIN_DIR)/manager main.go
+deploy-config:
+	microk8s.kubectl apply -f $(K8S_DIR)/configmap.yaml
 
-.PHONY: run
-run: ## Run locally against the configured Kubernetes cluster
-	go run ./main.go
+deploy-secret:
+	microk8s.kubectl apply -f $(K8S_DIR)/secret.yaml
 
-##@ Docker
+deploy-cronjob:
+	microk8s.kubectl apply -f $(K8S_DIR)/cronjob.yaml
 
-.PHONY: docker-build
-docker-build: test ## Build Docker image
-	docker build -t $(IMG) .
+deploy: deploy-config deploy-secret deploy-cronjob
 
-.PHONY: docker-push
-docker-push: ## Push Docker image to registry
-	docker push $(IMG)
+lint:
+	golangci-lint run
 
-##@ Deployment
+clean:
+	rm -rf bin/
+	docker rmi $(REGISTRY)/$(IMAGE_NAME):$(TAG) || true
 
-.PHONY: deploy
-deploy: ## Deploy application to Kubernetes cluster
-	$(KUBECTL) apply -f config/rbac/role.yaml
-	$(KUBECTL) apply -f config/manager/deployment.yaml
+# Helper targets
+check-deps:
+	@which docker || (echo "Docker not found"; exit 1)
+	@which kubectl || (echo "kubectl not found"; exit 1)
+	@which go || (echo "Go not found"; exit 1)
 
-.PHONY: undeploy
-undeploy: ## Remove application from Kubernetes cluster
-	$(KUBECTL) delete -f config/manager/deployment.yaml
-	$(KUBECTL) delete -f config/rbac/role.yaml
-
-##@ Cleanup
-
-.PHONY: clean
-clean: ## Remove build artifacts
-	rm -rf $(BIN_DIR) cover.out
-
-##@ Helpers
-
-.PHONY: help
-help: ## Display available commands
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
-
-.PHONY: generate
-generate: ## Tidy Go modules
-	go mod tidy
-
-.PHONY: local-run
-local-run: ## Run with environment variables from .env file
-	env $$(cat .env | xargs) go run ./main.go
+help:
+	@echo "Namespace Auditor Makefile"
+	@echo "Targets:"
+	@echo "  build         - Build Go binary"
+	@echo "  docker-build  - Build Docker image"
+	@echo "  docker-push   - Push Docker image to registry"
+	@echo "  deploy        - Deploy all components to cluster"
+	@echo "  test          - Run tests"
+	@echo "  lint          - Run code linter"
+	@echo "  clean         - Remove build artifacts"
+	@echo "  check-deps    - Verify required tools are installed"
+	@echo ""
+	@echo "Variables:"
+	@echo "  IMAGE_NAME=$(IMAGE_NAME)"
+	@echo "  REGISTRY=$(REGISTRY)"
+	@echo "  TAG=$(TAG)"
+	@echo "  K8S_DIR=$(K8S_DIR)"

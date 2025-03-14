@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: namespace-auditor-config
+data:
+  grace-period: "2160h" # 90 days
+  allowed-domains: "statcan.gc.ca,cloud.statcan.ca"
