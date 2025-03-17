@@ -13,6 +13,13 @@ build:
 test-unit:
 	go test -v ./...
 
+test-integration:
+	go test -v -tags=integration ./...
+
+test:
+	make test-unit
+	make test-integration
+
 docker-build:
 	docker build -t $(REGISTRY)/$(IMAGE_NAME):$(TAG) .
 
