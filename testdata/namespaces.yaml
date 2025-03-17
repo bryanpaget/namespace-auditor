@@ -1,10 +1,11 @@
 - name: valid-user
   annotations:
-    owner: "user@test.example"
+    owner: "valid@test.example"
   labels:
     app.kubernetes.io/part-of: kubeflow-profile
+
 - name: invalid-user
   annotations:
-    owner: "missing@test.example"
+    owner: "invalid@test.example"
   labels:
     app.kubernetes.io/part-of: kubeflow-profile
