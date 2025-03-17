@@ -21,7 +21,7 @@ flowchart TD
 ## Key Features
 - Runs daily at midnight
 - Processes only Kubeflow profile namespaces
-- 90-day safety window before deletion
+- 90-day grace period before deletion
 - Automatic cleanup of invalid @statcan.gc.ca/@cloud.statcan.ca accounts
 - Comprehensive test suite
 - Dry-run mode for safe testing
