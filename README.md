@@ -5,17 +5,16 @@ A scheduled cleaner for Kubeflow profiles that removes namespaces belonging to i
 ```mermaid
 flowchart TD
     A[Daily Cron Trigger] --> B[Get Kubeflow Profiles]
-    B --> C{Has owner Annotation?}
-    C -->|No| D[Skip]
-    C -->|Yes| E[Validate Email Domain]
+    B --> C[Check Owner Annotation]
+    C -->|Missing| D[Skip]
+    C -->|Present| E[Validate Email]
     E -->|Invalid| F[Skip]
-    E -->|Valid| G{User Exists in Entra ID?}
-    G -->|Yes| H[Clear Deletion Marker]
-    G -->|No| I{Marked for Deletion?}
-    I -->|No| J[Add Deletion Timestamp]
-    I -->|Yes| K{Grace Period Expired?}
-    K -->|Yes| L[Delete Namespace]
-    K -->|No| M[Skip]
+    E -->|Valid| G[Check Entra ID]
+    G -->|Exists| H[Clear Deletion Marker]
+    G -->|Missing| I[Mark for Deletion if Needed]
+    I -->|Grace Period Expired?| J[Delete Namespace]
+    I -->|Still in Grace Period| K[Skip]
+
 ```
 
 ## Key Features
