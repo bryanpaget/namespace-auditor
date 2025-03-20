@@ -3,16 +3,13 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
-	"os"
-
 	"github.com/bryanpaget/namespace-auditor/internal/auditor"
 	"github.com/bryanpaget/namespace-auditor/internal/azure"
-
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -20,39 +17,14 @@ import (
 const kubeflowLabel = "app.kubernetes.io/part-of=kubeflow-profile"
 
 var (
-	testMode     = flag.Bool("test", false, "Enable test mode (use local files)")
-	testConfig   = flag.String("test-config", "testdata/config.yaml", "Path to test config YAML")
-	testDataPath = flag.String("test-data", "testdata/namespaces.yaml", "Path to test namespaces YAML")
-	dryRun       = flag.Bool("dry-run", false, "Enable dry-run mode")
+	dryRun = flag.Bool("dry-run", false, "Enable dry-run mode")
 )
 
 func main() {
 	flag.Parse()
 
-	if *testMode {
-		cfg, err := loadTestConfig(*testConfig)
-		if err != nil {
-			log.Fatalf("Test config error: %v", err)
-		}
-
-		namespaces, err := loadTestNamespaces(*testDataPath)
-		if err != nil {
-			log.Fatalf("Test data error: %v", err)
-		}
-
-		runTestScenario(cfg, namespaces)
-		return
-	}
-	// Load configuration from environment
 	cfg := loadConfig()
-
-	// Initialize Kubernetes client
-	k8sClient, err := createK8sClient()
-	if err != nil {
-		log.Fatalf("Failed to create Kubernetes client: %v", err)
-	}
-
-	// Initialize Azure client
+	k8sClient := createK8sClientOrDie()
 	azureClient := azure.NewGraphClient(
 		cfg.azureTenantID,
 		cfg.azureClientID,
@@ -67,11 +39,9 @@ func main() {
 		*dryRun,
 	)
 
-	// Process namespaces
 	processNamespaces(processor)
 }
 
-// config holds all application configuration
 type config struct {
 	gracePeriod       time.Duration
 	allowedDomains    []string
@@ -81,16 +51,6 @@ type config struct {
 }
 
 func loadConfig() *config {
-	if *testMode {
-		cfg, err := loadTestConfig(*testConfig)
-		if err != nil {
-			log.Fatalf("Test config error: %v", err)
-		}
-		return &config{
-			gracePeriod:    mustParseDuration(cfg.GracePeriod),
-			allowedDomains: strings.Split(cfg.AllowedDomains, ","),
-		}
-	}
 	return &config{
 		gracePeriod:       mustParseDuration(os.Getenv("GRACE_PERIOD")),
 		allowedDomains:    strings.Split(os.Getenv("ALLOWED_DOMAINS"), ","),
@@ -100,13 +60,16 @@ func loadConfig() *config {
 	}
 }
 
-func createK8sClient() (kubernetes.Interface, error) {
+func createK8sClientOrDie() kubernetes.Interface {
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster config: %w", err)
+		log.Fatalf("Failed to get cluster config: %v", err)
 	}
-
-	return kubernetes.NewForConfig(config)
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Fatalf("Failed to create Kubernetes client: %v", err)
+	}
+	return client
 }
 
 func processNamespaces(p *auditor.NamespaceProcessor) {
