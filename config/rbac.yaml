@@ -1,21 +1,24 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: namespace-auditor
+  name: namespace-auditor  # Name of the ClusterRole
 rules:
   - apiGroups: [""]
-    resources: ["namespaces"]
-    verbs: ["get", "list", "update", "delete"]
+    resources: ["namespaces"]  # Grants permissions on Namespace resources
+    verbs: ["get", "list", "update", "delete"]  # Allowed actions on namespaces
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: namespace-auditor
+  name: namespace-auditor  # Name of the ClusterRoleBinding
+
 roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: namespace-auditor
+  apiGroup: rbac.authorization.k8s.io  # API group for RBAC
+  kind: ClusterRole  # References the ClusterRole created above
+  name: namespace-auditor  # Must match the ClusterRole name
+
 subjects:
-  - kind: ServiceAccount
-    name: namespace-auditor
-    namespace: default
+  - kind: ServiceAccount  # Grants permissions to a specific ServiceAccount
+    name: namespace-auditor  # Name of the ServiceAccount receiving the role
+    namespace: default  # The namespace where the ServiceAccount exists
