@@ -10,13 +10,11 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -32,39 +30,17 @@ const (
 
 // Command-line flags
 var (
-	dryRun       = flag.Bool("dry-run", false, "Enable dry-run mode (no actual changes)")
-	testMode     = flag.Bool("test", false, "Enable test mode (use local files)")
-	testConfig   = flag.String("test-config", "testdata/config.yaml", "Path to test config YAML")
-	testDataPath = flag.String("test-data", "testdata/namespaces.yaml", "Path to test namespaces YAML")
+	dryRun = flag.Bool("dry-run", false, "Enable dry-run mode (no actual changes)")
 )
 
-// TestConfig represents test configuration structure for YAML parsing
-type TestConfig struct {
-	GracePeriod    string `yaml:"grace-period"`    // Duration string for grace period
-	AllowedDomains string `yaml:"allowed-domains"` // Comma-separated allowed email domains
-}
-
-// TestNamespace represents a namespace structure for test data YAML parsing
-type TestNamespace struct {
-	Name        string            `yaml:"name"`        // Namespace name
-	Annotations map[string]string `yaml:"annotations"` // Namespace annotations
-	Labels      map[string]string `yaml:"labels"`      // Namespace labels
-}
-
-// main is the entry point that sets up and runs the auditor
 func main() {
 	flag.Parse()
 
-	if *testMode {
-		runTestMode()
-		return
-	}
-
-	// Production mode setup
+	// Parse required environment variables
 	gracePeriod := mustParseDuration(os.Getenv("GRACE_PERIOD"))
 	allowedDomains := strings.Split(os.Getenv("ALLOWED_DOMAINS"), ",")
 
-	// Create Kubernetes client
+	// Create Kubernetes client configuration
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		log.Fatalf("Error getting cluster config: %v", err)
@@ -87,7 +63,7 @@ func main() {
 		log.Println("DRY RUN MODE: No changes will be made to the cluster")
 	}
 
-	// List all Kubeflow namespaces
+	// List and process all Kubeflow namespaces
 	namespaces, err := clientset.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{
 		LabelSelector: kubeflowLabel,
 	})
@@ -102,13 +78,6 @@ func main() {
 }
 
 // processNamespace handles validation and processing of a single namespace
-// Parameters:
-// - ns: The namespace to process
-// - gc: Entra ID Graph client (nil in dry-run mode)
-// - k8s: Kubernetes client interface
-// - gracePeriod: Duration before final deletion after marking
-// - allowedDomains: List of allowed email domains
-// - dryRun: Whether to actually make changes
 func processNamespace(
 	ns corev1.Namespace,
 	gc *GraphClient,
@@ -131,7 +100,6 @@ func processNamespace(
 	existsInEntra := true
 	var err error
 
-	// Check user existence unless in dry-run mode
 	if gc != nil {
 		existsInEntra, err = gc.UserExists(context.TODO(), email)
 		if err != nil {
@@ -169,7 +137,6 @@ func handleInvalidUser(ns corev1.Namespace, k8s kubernetes.Interface, gracePerio
 	now := time.Now()
 
 	if existingTime, exists := ns.Annotations[gracePeriodAnnotation]; exists {
-		// Existing deletion marker found
 		deleteTime, err := time.Parse(time.RFC3339, existingTime)
 		if err != nil {
 			log.Printf("Invalid timestamp in %s: %v", ns.Name, err)
@@ -179,7 +146,6 @@ func handleInvalidUser(ns corev1.Namespace, k8s kubernetes.Interface, gracePerio
 				return
 			}
 
-			// Clean up invalid timestamp
 			delete(ns.Annotations, gracePeriodAnnotation)
 			if _, err := k8s.CoreV1().Namespaces().Update(context.TODO(), &ns, metav1.UpdateOptions{}); err != nil {
 				log.Printf("Error cleaning %s: %v", ns.Name, err)
@@ -187,7 +153,6 @@ func handleInvalidUser(ns corev1.Namespace, k8s kubernetes.Interface, gracePerio
 			return
 		}
 
-		// Check if grace period has expired
 		if now.After(deleteTime.Add(gracePeriod)) {
 			log.Printf("Deleting %s after grace period", ns.Name)
 
@@ -203,7 +168,6 @@ func handleInvalidUser(ns corev1.Namespace, k8s kubernetes.Interface, gracePerio
 		return
 	}
 
-	// Mark for deletion
 	log.Printf("Marking %s for deletion", ns.Name)
 	if dryRun {
 		log.Printf("[DRY RUN] Would add deletion annotation to %s", ns.Name)
@@ -242,94 +206,4 @@ func mustParseDuration(duration string) time.Duration {
 		log.Fatalf("Invalid duration format: %v", err)
 	}
 	return d
-}
-
-// runTestMode executes the test mode with local files
-func runTestMode() {
-	log.Println("Running in test mode")
-
-	cfg, err := loadTestConfig(*testConfig)
-	if err != nil {
-		log.Fatalf("Test config error: %v", err)
-	}
-
-	testNamespaces, err := loadTestNamespaces(*testDataPath)
-	if err != nil {
-		log.Fatalf("Test data error: %v", err)
-	}
-
-	// Mock client with predefined valid/invalid users
-	mockClient := &MockGraphClient{
-		ValidUsers: map[string]bool{
-			"valid@test.example":   true,
-			"invalid@test.example": false,
-		},
-	}
-
-	// Process test namespaces
-	for _, ns := range testNamespaces {
-		processTestNamespace(ns, cfg, mockClient)
-	}
-}
-
-// loadTestConfig reads and parses the test configuration YAML
-func loadTestConfig(path string) (TestConfig, error) {
-	var cfg TestConfig
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return cfg, fmt.Errorf("error reading test config: %w", err)
-	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("error parsing test config: %w", err)
-	}
-	return cfg, nil
-}
-
-// loadTestNamespaces reads and parses the test namespaces YAML
-func loadTestNamespaces(path string) ([]TestNamespace, error) {
-	var namespaces []TestNamespace
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("error reading test data: %w", err)
-	}
-	if err := yaml.Unmarshal(data, &namespaces); err != nil {
-		return nil, fmt.Errorf("error parsing test data: %w", err)
-	}
-	return namespaces, nil
-}
-
-// processTestNamespace simulates namespace processing for testing
-func processTestNamespace(ns TestNamespace, cfg TestConfig, mockClient *MockGraphClient) {
-	log.Printf("[TEST] Processing %s", ns.Name)
-
-	gracePeriod := mustParseDuration(cfg.GracePeriod)
-	allowedDomains := strings.Split(cfg.AllowedDomains, ",")
-	email := ns.Annotations[ownerAnnotation]
-
-	if email == "" {
-		log.Printf("[TEST] %s: Missing owner annotation", ns.Name)
-		return
-	}
-
-	if !isValidDomain(email, allowedDomains) {
-		log.Printf("[TEST] %s: Invalid domain for %s", ns.Name, email)
-		return
-	}
-
-	exists, _ := mockClient.UserExists(context.TODO(), email)
-	if exists {
-		log.Printf("[TEST] %s: Valid user %s (Grace period: %v)", ns.Name, email, gracePeriod)
-	} else {
-		log.Printf("[TEST] %s: Would mark for deletion (Grace period: %v)", ns.Name, gracePeriod)
-	}
-}
-
-// MockGraphClient simulates user existence checks for testing
-type MockGraphClient struct {
-	ValidUsers map[string]bool // Map of emails to their validity status
-}
-
-// UserExists checks if a user exists in the mock dataset
-func (m *MockGraphClient) UserExists(ctx context.Context, email string) (bool, error) {
-	return m.ValidUsers[email], nil
 }
