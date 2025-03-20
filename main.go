@@ -1,3 +1,10 @@
+/*
+Package main implements a Kubernetes namespace auditor that:
+- Checks namespaces with Kubeflow labels for owner annotations
+- Validates owner email domains against allowed domains
+- Verifies user existence in Entra ID (Azure AD)
+- Marks or cleans up namespaces based on validation results
+*/
 package main
 
 import (
@@ -16,12 +23,14 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+// Annotation and label constants
 const (
-	gracePeriodAnnotation = "namespace-auditor/delete-at"
-	ownerAnnotation       = "owner"
-	kubeflowLabel         = "app.kubernetes.io/part-of=kubeflow-profile"
+	gracePeriodAnnotation = "namespace-auditor/delete-at"  // Annotation for deletion timestamp
+	ownerAnnotation       = "owner"                        // Annotation for namespace owner email
+	kubeflowLabel         = "app.kubernetes.io/part-of=kubeflow-profile" // Label selector for Kubeflow namespaces
 )
 
+// Command-line flags
 var (
 	dryRun       = flag.Bool("dry-run", false, "Enable dry-run mode (no actual changes)")
 	testMode     = flag.Bool("test", false, "Enable test mode (use local files)")
@@ -29,17 +38,20 @@ var (
 	testDataPath = flag.String("test-data", "testdata/namespaces.yaml", "Path to test namespaces YAML")
 )
 
+// TestConfig represents test configuration structure for YAML parsing
 type TestConfig struct {
-	GracePeriod    string `yaml:"grace-period"`
-	AllowedDomains string `yaml:"allowed-domains"`
+	GracePeriod    string `yaml:"grace-period"`    // Duration string for grace period
+	AllowedDomains string `yaml:"allowed-domains"` // Comma-separated allowed email domains
 }
 
+// TestNamespace represents a namespace structure for test data YAML parsing
 type TestNamespace struct {
-	Name        string            `yaml:"name"`
-	Annotations map[string]string `yaml:"annotations"`
-	Labels      map[string]string `yaml:"labels"`
+	Name        string            `yaml:"name"`        // Namespace name
+	Annotations map[string]string `yaml:"annotations"` // Namespace annotations
+	Labels      map[string]string `yaml:"labels"`      // Namespace labels
 }
 
+// main is the entry point that sets up and runs the auditor
 func main() {
 	flag.Parse()
 
@@ -52,6 +64,7 @@ func main() {
 	gracePeriod := mustParseDuration(os.Getenv("GRACE_PERIOD"))
 	allowedDomains := strings.Split(os.Getenv("ALLOWED_DOMAINS"), ",")
 
+	// Create Kubernetes client
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		log.Fatalf("Error getting cluster config: %v", err)
@@ -62,6 +75,7 @@ func main() {
 		log.Fatalf("Error creating Kubernetes client: %v", err)
 	}
 
+	// Initialize Entra ID client unless in dry-run mode
 	var graphClient *GraphClient
 	if !*dryRun {
 		graphClient = NewGraphClient(
@@ -73,6 +87,7 @@ func main() {
 		log.Println("DRY RUN MODE: No changes will be made to the cluster")
 	}
 
+	// List all Kubeflow namespaces
 	namespaces, err := clientset.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{
 		LabelSelector: kubeflowLabel,
 	})
@@ -80,11 +95,20 @@ func main() {
 		log.Fatalf("Error listing namespaces: %v", err)
 	}
 
+	// Process each namespace
 	for _, ns := range namespaces.Items {
 		processNamespace(ns, graphClient, clientset, gracePeriod, allowedDomains, *dryRun)
 	}
 }
 
+// processNamespace handles validation and processing of a single namespace
+// Parameters:
+// - ns: The namespace to process
+// - gc: Entra ID Graph client (nil in dry-run mode)
+// - k8s: Kubernetes client interface
+// - gracePeriod: Duration before final deletion after marking
+// - allowedDomains: List of allowed email domains
+// - dryRun: Whether to actually make changes
 func processNamespace(
 	ns corev1.Namespace,
 	gc *GraphClient,
@@ -107,6 +131,7 @@ func processNamespace(
 	existsInEntra := true
 	var err error
 
+	// Check user existence unless in dry-run mode
 	if gc != nil {
 		existsInEntra, err = gc.UserExists(context.TODO(), email)
 		if err != nil {
@@ -122,6 +147,7 @@ func processNamespace(
 	}
 }
 
+// handleValidUser cleans up deletion markers from valid namespaces
 func handleValidUser(ns corev1.Namespace, k8s kubernetes.Interface, dryRun bool) {
 	if _, exists := ns.Annotations[gracePeriodAnnotation]; exists {
 		log.Printf("Valid user found, removing deletion marker from %s", ns.Name)
@@ -138,10 +164,12 @@ func handleValidUser(ns corev1.Namespace, k8s kubernetes.Interface, dryRun bool)
 	}
 }
 
+// handleInvalidUser manages namespaces with invalid/missing users
 func handleInvalidUser(ns corev1.Namespace, k8s kubernetes.Interface, gracePeriod time.Duration, dryRun bool) {
 	now := time.Now()
 
 	if existingTime, exists := ns.Annotations[gracePeriodAnnotation]; exists {
+		// Existing deletion marker found
 		deleteTime, err := time.Parse(time.RFC3339, existingTime)
 		if err != nil {
 			log.Printf("Invalid timestamp in %s: %v", ns.Name, err)
@@ -151,6 +179,7 @@ func handleInvalidUser(ns corev1.Namespace, k8s kubernetes.Interface, gracePerio
 				return
 			}
 
+			// Clean up invalid timestamp
 			delete(ns.Annotations, gracePeriodAnnotation)
 			if _, err := k8s.CoreV1().Namespaces().Update(context.TODO(), &ns, metav1.UpdateOptions{}); err != nil {
 				log.Printf("Error cleaning %s: %v", ns.Name, err)
@@ -158,6 +187,7 @@ func handleInvalidUser(ns corev1.Namespace, k8s kubernetes.Interface, gracePerio
 			return
 		}
 
+		// Check if grace period has expired
 		if now.After(deleteTime.Add(gracePeriod)) {
 			log.Printf("Deleting %s after grace period", ns.Name)
 
@@ -173,6 +203,7 @@ func handleInvalidUser(ns corev1.Namespace, k8s kubernetes.Interface, gracePerio
 		return
 	}
 
+	// Mark for deletion
 	log.Printf("Marking %s for deletion", ns.Name)
 	if dryRun {
 		log.Printf("[DRY RUN] Would add deletion annotation to %s", ns.Name)
@@ -188,6 +219,7 @@ func handleInvalidUser(ns corev1.Namespace, k8s kubernetes.Interface, gracePerio
 	}
 }
 
+// isValidDomain checks if an email address has an allowed domain
 func isValidDomain(email string, allowedDomains []string) bool {
 	parts := strings.Split(email, "@")
 	if len(parts) != 2 {
@@ -203,6 +235,7 @@ func isValidDomain(email string, allowedDomains []string) bool {
 	return false
 }
 
+// mustParseDuration parses a duration string or fatally exits
 func mustParseDuration(duration string) time.Duration {
 	d, err := time.ParseDuration(duration)
 	if err != nil {
@@ -211,6 +244,7 @@ func mustParseDuration(duration string) time.Duration {
 	return d
 }
 
+// runTestMode executes the test mode with local files
 func runTestMode() {
 	log.Println("Running in test mode")
 
@@ -224,6 +258,7 @@ func runTestMode() {
 		log.Fatalf("Test data error: %v", err)
 	}
 
+	// Mock client with predefined valid/invalid users
 	mockClient := &MockGraphClient{
 		ValidUsers: map[string]bool{
 			"valid@test.example":   true,
@@ -231,11 +266,13 @@ func runTestMode() {
 		},
 	}
 
+	// Process test namespaces
 	for _, ns := range testNamespaces {
 		processTestNamespace(ns, cfg, mockClient)
 	}
 }
 
+// loadTestConfig reads and parses the test configuration YAML
 func loadTestConfig(path string) (TestConfig, error) {
 	var cfg TestConfig
 	data, err := os.ReadFile(path)
@@ -248,6 +285,7 @@ func loadTestConfig(path string) (TestConfig, error) {
 	return cfg, nil
 }
 
+// loadTestNamespaces reads and parses the test namespaces YAML
 func loadTestNamespaces(path string) ([]TestNamespace, error) {
 	var namespaces []TestNamespace
 	data, err := os.ReadFile(path)
@@ -260,10 +298,11 @@ func loadTestNamespaces(path string) ([]TestNamespace, error) {
 	return namespaces, nil
 }
 
+// processTestNamespace simulates namespace processing for testing
 func processTestNamespace(ns TestNamespace, cfg TestConfig, mockClient *MockGraphClient) {
 	log.Printf("[TEST] Processing %s", ns.Name)
 
-	gracePeriod := mustParseDuration(cfg.GracePeriod) // Now used below
+	gracePeriod := mustParseDuration(cfg.GracePeriod)
 	allowedDomains := strings.Split(cfg.AllowedDomains, ",")
 	email := ns.Annotations[ownerAnnotation]
 
@@ -285,10 +324,12 @@ func processTestNamespace(ns TestNamespace, cfg TestConfig, mockClient *MockGrap
 	}
 }
 
+// MockGraphClient simulates user existence checks for testing
 type MockGraphClient struct {
-	ValidUsers map[string]bool
+	ValidUsers map[string]bool // Map of emails to their validity status
 }
 
+// UserExists checks if a user exists in the mock dataset
 func (m *MockGraphClient) UserExists(ctx context.Context, email string) (bool, error) {
 	return m.ValidUsers[email], nil
 }
