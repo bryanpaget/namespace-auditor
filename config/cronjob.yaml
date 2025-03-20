@@ -1,39 +1,48 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: namespace-auditor
+  name: namespace-auditor  # Name of the CronJob
+
 spec:
-  schedule: "0 0 * * *"
+  schedule: "0 0 * * *"  # Runs the job daily at midnight (UTC)
   jobTemplate:
     spec:
       template:
         spec:
-          serviceAccountName: namespace-auditor
-          restartPolicy: Never
+          serviceAccountName: namespace-auditor  # Service account used for permissions
+          restartPolicy: Never  # Ensures the job doesn't restart on failure
           containers:
-            - name: auditor
-              image: bryanpaget/namespace-auditor:latest
+            - name: auditor  # Name of the container running the audit script
+              image: bryanpaget/namespace-auditor:latest  # Container image
+
               env:
+                # Grace period before taking action on non-compliant namespaces
                 - name: GRACE_PERIOD
                   valueFrom:
                     configMapKeyRef:
                       name: namespace-auditor-config
                       key: grace-period
+
+                # Allowed domains for namespace ownership validation
                 - name: ALLOWED_DOMAINS
                   valueFrom:
                     configMapKeyRef:
                       name: namespace-auditor-config
                       key: allowed-domains
+
+                # Azure authentication credentials (retrieved from a secret)
                 - name: AZURE_TENANT_ID
                   valueFrom:
                     secretKeyRef:
                       name: azure-creds
                       key: tenant-id
+
                 - name: AZURE_CLIENT_ID
                   valueFrom:
                     secretKeyRef:
                       name: azure-creds
                       key: client-id
+
                 - name: AZURE_CLIENT_SECRET
                   valueFrom:
                     secretKeyRef:
