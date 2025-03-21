@@ -63,17 +63,17 @@ docker-push:
 	docker push $(REGISTRY)/$(IMAGE_NAME):$(TAG)
 
 deploy-config:
-	kubectl apply -f config/configmap.yaml
+	kubectl apply -f deploy/configmap.yaml
 
 deploy-secret:
-	kubectl apply -f config/secret.yaml
+	kubectl apply -f deploy/secret.yaml
 
 deploy-rbac:
-	kubectl apply -f config/rbac.yaml
-	kubectl apply -f config/serviceaccount.yaml
+	kubectl apply -f deploy/rbac.yaml
+	kubectl apply -f deploy/serviceaccount.yaml
 
 deploy-cronjob:
-	kubectl apply -f config/cronjob.yaml
+	kubectl apply -f deploy/cronjob.yaml
 
 deploy: deploy-rbac deploy-config deploy-secret deploy-cronjob
 
