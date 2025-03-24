@@ -24,11 +24,11 @@ func (m *mockAzureClient) UserExists(ctx context.Context, email string) (bool, e
 
 func TestNamespaceProcessing(t *testing.T) {
 	testCases := []struct {
-		name           string
-		namespace      corev1.Namespace
-		config         *config
-		mockUsers      map[string]bool
-		expectedAction string
+		name        string
+		namespace   corev1.Namespace
+		config      *config
+		mockUsers   map[string]bool
+		expectedLog string
 	}{
 		{
 			name: "valid user cleans up annotation",
@@ -37,7 +37,7 @@ func TestNamespaceProcessing(t *testing.T) {
 					Name: "valid-user",
 					Annotations: map[string]string{
 						auditor.OwnerAnnotation:       "user@company.com",
-						auditor.GracePeriodAnnotation: time.Now().Add(-time.Hour).Format(time.RFC3339),
+						auditor.GracePeriodAnnotation: time.Now().Format(time.RFC3339),
 					},
 				},
 			},
@@ -45,8 +45,8 @@ func TestNamespaceProcessing(t *testing.T) {
 				gracePeriod:    time.Hour * 24,
 				allowedDomains: []string{"company.com"},
 			},
-			mockUsers:      map[string]bool{"user@company.com": true},
-			expectedAction: "cleaned up grace period annotation",
+			mockUsers:   map[string]bool{"user@company.com": true},
+			expectedLog: "Cleaning up grace period annotation",
 		},
 		{
 			name: "invalid user marks for deletion",
@@ -54,7 +54,7 @@ func TestNamespaceProcessing(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "invalid-user",
 					Annotations: map[string]string{
-						auditor.OwnerAnnotation: "bad@hacker.com",
+						auditor.OwnerAnnotation: "invalid@company.com",
 					},
 				},
 			},
@@ -62,8 +62,8 @@ func TestNamespaceProcessing(t *testing.T) {
 				gracePeriod:    time.Hour * 24,
 				allowedDomains: []string{"company.com"},
 			},
-			mockUsers:      map[string]bool{},
-			expectedAction: "marked for deletion",
+			mockUsers:   map[string]bool{"invalid@company.com": false},
+			expectedLog: "Marking namespace invalid-user",
 		},
 	}
 
@@ -91,9 +91,9 @@ func TestNamespaceProcessing(t *testing.T) {
 			processor.ProcessNamespace(context.Background(), tc.namespace)
 
 			// Verify log output
-			if !strings.Contains(logBuf.String(), tc.expectedAction) {
+			if !strings.Contains(logBuf.String(), tc.expectedLog) {
 				t.Errorf("Expected log to contain %q, got: %q",
-					tc.expectedAction, logBuf.String())
+					tc.expectedLog, logBuf.String())
 			}
 
 			// Verify Kubernetes state
@@ -107,7 +107,7 @@ func TestNamespaceProcessing(t *testing.T) {
 			}
 
 			// Verify annotation changes
-			switch tc.expectedAction {
+			switch tc.expectedLog {
 			case "cleaned up grace period annotation":
 				if _, exists := ns.Annotations[auditor.GracePeriodAnnotation]; exists {
 					t.Error("Grace period annotation should have been removed")

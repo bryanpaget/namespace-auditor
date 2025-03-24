@@ -79,7 +79,7 @@ func (p *NamespaceProcessor) ProcessNamespace(ctx context.Context, ns corev1.Nam
 // handleValidUser cleans up deletion markers for valid users
 func (p *NamespaceProcessor) handleValidUser(ns corev1.Namespace) {
 	if _, exists := ns.Annotations[GracePeriodAnnotation]; exists {
-		log.Printf("Valid user found, removing deletion marker from %s", ns.Name)
+		log.Printf("Cleaning up grace period annotation from %s", ns.Name)
 
 		if p.dryRun {
 			log.Printf("[DRY RUN] Would remove annotation from %s", ns.Name)
@@ -154,7 +154,7 @@ func (p *NamespaceProcessor) handleInvalidTimestamp(ns corev1.Namespace) {
 }
 
 func (p *NamespaceProcessor) deleteNamespace(ns corev1.Namespace) {
-	log.Printf("Deleting %s after grace period", ns.Name)
+	log.Printf("Deleting namespace %s after grace period", ns.Name)
 
 	if p.dryRun {
 		log.Printf("[DRY RUN] Would delete namespace %s", ns.Name)
@@ -172,6 +172,7 @@ func (p *NamespaceProcessor) deleteNamespace(ns corev1.Namespace) {
 }
 
 func (p *NamespaceProcessor) markForDeletion(ns corev1.Namespace, now time.Time) {
+	log.Printf("Marking namespace %s for deletion", ns.Name)
 	if p.dryRun {
 		log.Printf("[DRY RUN] Would add deletion annotation to %s", ns.Name)
 		return

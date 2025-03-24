@@ -82,11 +82,3 @@ func processNamespaces(p *auditor.NamespaceProcessor) {
 		p.ProcessNamespace(context.TODO(), ns)
 	}
 }
-
-func mustParseDuration(duration string) time.Duration {
-	d, err := time.ParseDuration(duration)
-	if err != nil {
-		log.Fatalf("Invalid duration format: %v", err)
-	}
-	return d
-}

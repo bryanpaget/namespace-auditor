@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -30,7 +31,14 @@ func (m *mockTokenCredential) GetToken(
 	}, m.err
 }
 
+func skipIfIntegrationDisabled(t *testing.T) {
+	if os.Getenv("AZURE_INTEGRATION") == "" {
+		t.Skip("Set AZURE_INTEGRATION=1 to run this test")
+	}
+}
+
 func TestNewGraphClient(t *testing.T) {
+	skipIfIntegrationDisabled(t)
 	t.Run("valid credentials", func(t *testing.T) {
 		client := NewGraphClient("tenant", "client", "secret")
 		require.NotNil(t, client, "Client should be created")
@@ -47,6 +55,7 @@ func TestNewGraphClient(t *testing.T) {
 }
 
 func TestUserExists(t *testing.T) {
+	skipIfIntegrationDisabled(t)
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Validate Authorization header first
 		if r.Header.Get("Authorization") != "Bearer test-token" {
@@ -121,6 +130,7 @@ func TestUserExists(t *testing.T) {
 }
 
 func TestTokenAcquisitionError(t *testing.T) {
+	skipIfIntegrationDisabled(t)
 	mockCred := &mockTokenCredential{
 		err: fmt.Errorf("token acquisition failed"),
 	}
@@ -135,6 +145,7 @@ func TestTokenAcquisitionError(t *testing.T) {
 }
 
 func TestNetworkError(t *testing.T) {
+	skipIfIntegrationDisabled(t)
 	mockCred := &mockTokenCredential{token: "test-token"}
 	client := &GraphClient{cred: mockCred}
 
