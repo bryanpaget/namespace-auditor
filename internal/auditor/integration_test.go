@@ -1,4 +1,3 @@
-// internal/auditor/integration_test.go
 package auditor_test
 
 import (
@@ -11,6 +10,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 )
+
+type MockUserChecker struct {
+	exists bool
+}
+
+func (m *MockUserChecker) UserExists(ctx context.Context, email string) (bool, error) {
+	return m.exists, nil
+}
 
 func TestNamespaceLifecycle(t *testing.T) {
 	testCases := []struct {
@@ -25,7 +32,7 @@ func TestNamespaceLifecycle(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-ns-dryrun",
 					Annotations: map[string]string{
-						auditor.OwnerAnnotation: "invalid@statcan.gc.ca",
+						auditor.OwnerAnnotation: "invalid@example.com",
 					},
 				},
 			},
@@ -36,21 +43,17 @@ func TestNamespaceLifecycle(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Setup test namespace with initial state
 			client := fake.NewSimpleClientset(&tc.namespace)
-
 			processor := auditor.NewNamespaceProcessor(
 				client,
-				&auditor.MockAzureClient{ValidUsers: map[string]bool{"invalid@statcan.gc.ca": false}},
+				&MockUserChecker{exists: false},
 				time.Hour,
-				[]string{"statcan.gc.ca"},
+				[]string{"example.com"},
 				tc.dryRun,
 			)
 
-			// Process the namespace
 			processor.ProcessNamespace(context.TODO(), tc.namespace)
 
-			// Verify results
 			updatedNs, _ := client.CoreV1().Namespaces().Get(
 				context.TODO(),
 				tc.namespace.Name,

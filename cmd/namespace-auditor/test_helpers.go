@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bryanpaget/namespace-auditor/internal/auditor"
 	"gopkg.in/yaml.v2"
@@ -13,7 +14,6 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-// TestConfig matches your config structure
 type TestConfig struct {
 	GracePeriod    string `yaml:"grace-period"`
 	AllowedDomains string `yaml:"allowed-domains"`
@@ -34,12 +34,6 @@ func loadTestConfig(path string) (TestConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("error parsing test config: %w", err)
 	}
-	if cfg.GracePeriod == "" {
-		return cfg, fmt.Errorf("missing grace-period in test config")
-	}
-	if cfg.AllowedDomains == "" {
-		return cfg, fmt.Errorf("missing allowed-domains in test config")
-	}
 	return cfg, nil
 }
 
@@ -55,13 +49,21 @@ func loadTestNamespaces(path string) ([]TestNamespace, error) {
 	return namespaces, nil
 }
 
-func runTestScenario(cfg TestConfig, namespaces []TestNamespace) {
+func mustParseDuration(duration string) time.Duration {
+	d, err := time.ParseDuration(duration)
+	if err != nil {
+		panic(fmt.Sprintf("Invalid duration: %v", err))
+	}
+	return d
+}
+
+func runTestScenario(cfg TestConfig, namespaces []TestNamespace, dryRun bool) {
 	processor := auditor.NewNamespaceProcessor(
 		fake.NewSimpleClientset(),
-		&MockGraphClient{ValidUsers: make(map[string]bool)},
+		&MockUserChecker{},
 		mustParseDuration(cfg.GracePeriod),
 		strings.Split(cfg.AllowedDomains, ","),
-		*dryRun,
+		dryRun,
 	)
 
 	for _, ns := range namespaces {
@@ -76,10 +78,8 @@ func runTestScenario(cfg TestConfig, namespaces []TestNamespace) {
 	}
 }
 
-type MockGraphClient struct {
-	ValidUsers map[string]bool
-}
+type MockUserChecker struct{}
 
-func (m *MockGraphClient) UserExists(ctx context.Context, email string) (bool, error) {
-	return m.ValidUsers[email], nil
+func (m *MockUserChecker) UserExists(ctx context.Context, email string) (bool, error) {
+	return false, nil
 }

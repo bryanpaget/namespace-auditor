@@ -3,6 +3,7 @@ package auditor
 import (
 	"context"
 	"log"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -12,22 +13,17 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-const (
-	testOwnerAnnotation       = OwnerAnnotation
-	testGracePeriodAnnotation = GracePeriodAnnotation
-	testKubeflowLabel         = KubeflowLabel
-)
-
-// MockAzureClient implements UserExistenceChecker for testing
-type MockAzureClient struct {
-	ValidUsers map[string]bool
+// MockUserChecker implements UserExistenceChecker for testing
+type MockUserChecker struct {
+	exists bool
+	err    error
 }
 
-func (m *MockAzureClient) UserExists(ctx context.Context, email string) (bool, error) {
-	return m.ValidUsers[email], nil
+func (m *MockUserChecker) UserExists(ctx context.Context, email string) (bool, error) {
+	return m.exists, m.err
 }
 
-func newTestProcessor(azureUsers map[string]bool, k8sNamespaces []*corev1.Namespace, dryRun bool) *NamespaceProcessor {
+func newTestProcessor(userExists bool, k8sNamespaces []*corev1.Namespace, dryRun bool) *NamespaceProcessor {
 	fakeClient := fake.NewSimpleClientset()
 	for _, ns := range k8sNamespaces {
 		fakeClient.CoreV1().Namespaces().Create(context.TODO(), ns, metav1.CreateOptions{})
@@ -35,7 +31,7 @@ func newTestProcessor(azureUsers map[string]bool, k8sNamespaces []*corev1.Namesp
 
 	return &NamespaceProcessor{
 		k8sClient:      fakeClient,
-		azureClient:    &MockAzureClient{ValidUsers: azureUsers},
+		azureClient:    &MockUserChecker{exists: userExists},
 		gracePeriod:    24 * time.Hour,
 		allowedDomains: []string{"example.com"},
 		dryRun:         dryRun,
@@ -45,7 +41,9 @@ func newTestProcessor(azureUsers map[string]bool, k8sNamespaces []*corev1.Namesp
 func captureLogs(fn func()) string {
 	var buf strings.Builder
 	log.SetOutput(&buf)
-	defer log.SetOutput(nil)
+	defer func() {
+		log.SetOutput(os.Stderr)
+	}()
 	fn()
 	return buf.String()
 }
@@ -55,8 +53,9 @@ func TestProcessNamespace(t *testing.T) {
 	testCases := []struct {
 		name           string
 		ns             corev1.Namespace
-		azureUsers     map[string]bool
-		expectedAction string // "marked", "deleted", "cleaned", or ""
+		userExists     bool
+		expectedLog    string
+		expectModified bool
 	}{
 		{
 			name: "valid user with annotation removal",
@@ -64,13 +63,14 @@ func TestProcessNamespace(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "valid-ns",
 					Annotations: map[string]string{
-						testOwnerAnnotation:       "user@example.com",
-						testGracePeriodAnnotation: now,
+						OwnerAnnotation:       "user@example.com",
+						GracePeriodAnnotation: now,
 					},
 				},
 			},
-			azureUsers:     map[string]bool{"user@example.com": true},
-			expectedAction: "removing deletion marker",
+			userExists:     true,
+			expectedLog:    "Cleaning up grace period annotation",
+			expectModified: true,
 		},
 		{
 			name: "invalid domain",
@@ -78,11 +78,11 @@ func TestProcessNamespace(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "invalid-domain",
 					Annotations: map[string]string{
-						testOwnerAnnotation: "user@invalid.com",
+						OwnerAnnotation: "user@invalid.com",
 					},
 				},
 			},
-			expectedAction: "invalid domain",
+			expectedLog: "invalid domain",
 		},
 		{
 			name: "missing owner annotation",
@@ -91,7 +91,7 @@ func TestProcessNamespace(t *testing.T) {
 					Name: "no-owner",
 				},
 			},
-			expectedAction: "missing owner annotation",
+			expectedLog: "missing owner annotation",
 		},
 		{
 			name: "mark for deletion",
@@ -99,24 +99,40 @@ func TestProcessNamespace(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "to-delete",
 					Annotations: map[string]string{
-						testOwnerAnnotation: "missing@example.com",
+						OwnerAnnotation: "missing@example.com",
 					},
 				},
 			},
-			azureUsers:     map[string]bool{"missing@example.com": false},
-			expectedAction: "Marking",
+			userExists:     false,
+			expectedLog:    "Marking namespace to-delete for deletion",
+			expectModified: true,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			processor := newTestProcessor(tc.azureUsers, []*corev1.Namespace{&tc.ns}, false)
+			processor := newTestProcessor(tc.userExists, []*corev1.Namespace{&tc.ns}, false)
 			logOutput := captureLogs(func() {
 				processor.ProcessNamespace(context.TODO(), tc.ns)
 			})
 
-			if tc.expectedAction != "" && !strings.Contains(logOutput, tc.expectedAction) {
-				t.Errorf("Expected action %q not found in logs: %s", tc.expectedAction, logOutput)
+			if !strings.Contains(logOutput, tc.expectedLog) {
+				t.Errorf("Expected log %q not found in: %s", tc.expectedLog, logOutput)
+			}
+
+			if tc.expectModified {
+				updatedNs, _ := processor.k8sClient.CoreV1().Namespaces().Get(
+					context.TODO(), tc.ns.Name, metav1.GetOptions{},
+				)
+				if tc.userExists {
+					if _, exists := updatedNs.Annotations[GracePeriodAnnotation]; exists {
+						t.Error("Annotation should have been removed")
+					}
+				} else {
+					if _, exists := updatedNs.Annotations[GracePeriodAnnotation]; !exists {
+						t.Error("Annotation should have been added")
+					}
+				}
 			}
 		})
 	}
@@ -133,8 +149,9 @@ func TestHandleValidUser(t *testing.T) {
 			name: "remove annotation",
 			ns: corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
 					Annotations: map[string]string{
-						testGracePeriodAnnotation: time.Now().Format(time.RFC3339),
+						GracePeriodAnnotation: time.Now().Format(time.RFC3339),
 					},
 				},
 			},
@@ -144,7 +161,7 @@ func TestHandleValidUser(t *testing.T) {
 			name: "no annotation present",
 			ns: corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{},
+					Name: "test-ns",
 				},
 			},
 			expectClean: false,
@@ -153,8 +170,9 @@ func TestHandleValidUser(t *testing.T) {
 			name: "dry run mode",
 			ns: corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
 					Annotations: map[string]string{
-						testGracePeriodAnnotation: time.Now().Format(time.RFC3339),
+						GracePeriodAnnotation: time.Now().Format(time.RFC3339),
 					},
 				},
 			},
@@ -165,7 +183,7 @@ func TestHandleValidUser(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			processor := newTestProcessor(nil, []*corev1.Namespace{&tc.ns}, tc.dryRun)
+			processor := newTestProcessor(true, []*corev1.Namespace{&tc.ns}, tc.dryRun)
 			logOutput := captureLogs(func() {
 				processor.handleValidUser(tc.ns)
 			})
@@ -175,20 +193,22 @@ func TestHandleValidUser(t *testing.T) {
 			)
 
 			if tc.expectClean {
-				if _, exists := updatedNs.Annotations[testGracePeriodAnnotation]; exists {
+				if _, exists := updatedNs.Annotations[GracePeriodAnnotation]; exists {
 					t.Error("Annotation was not removed")
 				}
-			}
-
-			if tc.dryRun && !strings.Contains(logOutput, "[DRY RUN]") {
-				t.Error("Dry run not logged correctly")
+			} else if tc.dryRun {
+				if !strings.Contains(logOutput, "[DRY RUN]") {
+					t.Error("Dry run not logged correctly")
+				}
+				if _, exists := updatedNs.Annotations[GracePeriodAnnotation]; !exists {
+					t.Error("Dry run should not modify namespace")
+				}
 			}
 		})
 	}
 }
 
 func TestHandleInvalidUser(t *testing.T) {
-	now := time.Now()
 	testCases := []struct {
 		name           string
 		ns             corev1.Namespace
@@ -198,30 +218,33 @@ func TestHandleInvalidUser(t *testing.T) {
 			name: "mark new namespace",
 			ns: corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
 					Annotations: map[string]string{
-						testOwnerAnnotation: "user@example.com",
+						OwnerAnnotation: "user@example.com", // Valid domain
 					},
 				},
 			},
-			expectedAction: "Marking",
+			expectedAction: "Marking namespace test-ns",
 		},
 		{
 			name: "expired grace period",
 			ns: corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
 					Annotations: map[string]string{
-						testGracePeriodAnnotation: now.Add(-25 * time.Hour).Format(time.RFC3339),
+						GracePeriodAnnotation: time.Now().Add(-25 * time.Hour).Format(time.RFC3339),
 					},
 				},
 			},
-			expectedAction: "Deleting",
+			expectedAction: "Deleting namespace test-ns after grace period",
 		},
 		{
 			name: "invalid timestamp",
 			ns: corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-ns",
 					Annotations: map[string]string{
-						testGracePeriodAnnotation: "invalid-time",
+						GracePeriodAnnotation: "invalid-time",
 					},
 				},
 			},
@@ -231,7 +254,7 @@ func TestHandleInvalidUser(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			processor := newTestProcessor(nil, []*corev1.Namespace{&tc.ns}, false)
+			processor := newTestProcessor(false, []*corev1.Namespace{&tc.ns}, false)
 			logOutput := captureLogs(func() {
 				processor.handleInvalidUser(tc.ns)
 			})
@@ -244,14 +267,13 @@ func TestHandleInvalidUser(t *testing.T) {
 }
 
 func TestErrorHandling(t *testing.T) {
-	// Test Kubernetes API error handling
 	t.Run("namespace update error", func(t *testing.T) {
-		processor := newTestProcessor(nil, nil, false) // No namespaces created
+		processor := newTestProcessor(false, nil, false)
 		ns := corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "error-ns",
 				Annotations: map[string]string{
-					testGracePeriodAnnotation: "invalid-time",
+					GracePeriodAnnotation: "invalid-time",
 				},
 			},
 		}
@@ -266,7 +288,6 @@ func TestErrorHandling(t *testing.T) {
 	})
 }
 
-// internal/auditor/processor_test.go
 func TestListNamespaces(t *testing.T) {
 	testNs := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -277,9 +298,9 @@ func TestListNamespaces(t *testing.T) {
 		},
 	}
 
-	processor := newTestProcessor(nil, []*corev1.Namespace{testNs}, false)
+	processor := newTestProcessor(false, []*corev1.Namespace{testNs}, false)
 
-	nsList, err := processor.ListNamespaces(context.TODO(), testKubeflowLabel)
+	nsList, err := processor.ListNamespaces(context.TODO(), KubeflowLabel)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -289,7 +310,6 @@ func TestListNamespaces(t *testing.T) {
 	}
 }
 
-// internal/auditor/processor_test.go
 func TestIsValidDomain(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -299,26 +319,26 @@ func TestIsValidDomain(t *testing.T) {
 	}{
 		{
 			name:    "valid exact domain",
-			email:   "user@statcan.gc.ca",
-			domains: []string{"statcan.gc.ca"},
+			email:   "user@example.com",
+			domains: []string{"example.com"},
 			want:    true,
 		},
 		{
 			name:    "valid subdomain",
-			email:   "user@cloud.statcan.ca",
-			domains: []string{"statcan.gc.ca", "cloud.statcan.ca"},
+			email:   "user@sub.example.com",
+			domains: []string{"example.com", "sub.example.com"},
 			want:    true,
 		},
 		{
 			name:    "invalid domain",
-			email:   "invalid@example.com",
-			domains: []string{"statcan.gc.ca"},
+			email:   "invalid@other.com",
+			domains: []string{"example.com"},
 			want:    false,
 		},
 		{
 			name:    "malformed email",
 			email:   "invalid-email",
-			domains: []string{"statcan.gc.ca"},
+			domains: []string{"example.com"},
 			want:    false,
 		},
 	}
