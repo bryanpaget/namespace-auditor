@@ -7,7 +7,7 @@ GO_TEST_FLAGS ?= -v -race -coverprofile=coverage.out -covermode=atomic -coverpkg
 BIN_DIR := bin
 PKG_DIRS := $(shell go list ./... | grep -v /testdata)
 
-.PHONY: all build test test-unit test-integration docker-build docker-push \
+.PHONY: all build test test-unit test-integration test-local docker-build docker-push \
         deploy-config deploy-secret deploy-rbac deploy-cronjob deploy \
         clean lint fmt check-fmt coverage help
 
@@ -30,7 +30,11 @@ test-coverage: test-unit test-integration
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated at coverage.html"
 
-test: test-unit
+test-local:
+	@echo "Running local tests with testdata..."
+	@go test -v -tags=local ./cmd/namespace-auditor
+
+test: test-unit test-local
 
 docker-build:
 	@echo "Building Docker image..."
@@ -41,17 +45,17 @@ docker-push: docker-build
 	@docker push $(REGISTRY)/$(IMAGE_NAME):$(TAG)
 
 deploy-config:
-	@kubectl apply -f deploy/configmap.yaml
+	@microk8s.kubectl apply -f deploy/configmap.yaml
 
 deploy-secret:
-	@kubectl apply -f deploy/secret.yaml
+	@microk8s.kubectl apply -f deploy/secret.yaml
 
 deploy-rbac:
-	@kubectl apply -f deploy/rbac.yaml
-	@kubectl apply -f deploy/serviceaccount.yaml
+	@microk8s.kubectl apply -f deploy/rbac.yaml
+	@microk8s.kubectl apply -f deploy/serviceaccount.yaml
 
 deploy-cronjob:
-	@kubectl apply -f deploy/cronjob.yaml
+	@microk8s.kubectl apply -f deploy/cronjob.yaml
 
 deploy: deploy-rbac deploy-config deploy-secret deploy-cronjob
 
