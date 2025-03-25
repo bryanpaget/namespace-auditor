@@ -12,32 +12,30 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func (p *NamespaceProcessor) GetClient() kubernetes.Interface {
-	return p.k8sClient
-}
-
-// Add this method to the NamespaceProcessor
-func (p *NamespaceProcessor) ListNamespaces(ctx context.Context, labelSelector string) (*corev1.NamespaceList, error) {
-	return p.k8sClient.CoreV1().Namespaces().List(
-		ctx,
-		metav1.ListOptions{LabelSelector: labelSelector},
-	)
-}
-
+// NamespaceProcessor handles namespace lifecycle management operations
+// including validation, grace period enforcement, and cleanup.
 type NamespaceProcessor struct {
-	k8sClient      kubernetes.Interface
-	azureClient    UserExistenceChecker
-	gracePeriod    time.Duration
-	allowedDomains []string
-	dryRun         bool
+	k8sClient      kubernetes.Interface // Kubernetes API client
+	azureClient    UserExistenceChecker // User validation client
+	gracePeriod    time.Duration        // Allowed grace period duration
+	allowedDomains []string             // Permitted email domains
+	dryRun         bool                 // Safety flag to prevent mutations
 }
 
-// UserExistenceChecker defines the interface for checking user existence
+// UserExistenceChecker defines the interface for validating user existence
+// in external identity systems (e.g., Azure AD).
 type UserExistenceChecker interface {
 	UserExists(ctx context.Context, email string) (bool, error)
 }
 
-// NewNamespaceProcessor creates a new namespace processor instance
+// NewNamespaceProcessor creates a new processor instance with configured dependencies.
+//
+// Parameters:
+// - k8sClient: Kubernetes client for API interactions
+// - azureClient: User validation client implementation
+// - gracePeriod: Duration before deleting unclaimed namespaces
+// - allowedDomains: List of permitted email domains
+// - dryRun: Safety mode flag to disable mutations
 func NewNamespaceProcessor(
 	k8sClient kubernetes.Interface,
 	azureClient UserExistenceChecker,
@@ -54,7 +52,28 @@ func NewNamespaceProcessor(
 	}
 }
 
-// ProcessNamespace handles the complete processing pipeline for a namespace
+// GetClient provides access to the Kubernetes client for testing purposes.
+func (p *NamespaceProcessor) GetClient() kubernetes.Interface {
+	return p.k8sClient
+}
+
+// ListNamespaces retrieves namespaces matching the specified label selector.
+//
+// Parameters:
+// - ctx: Context for cancellation and timeouts
+// - labelSelector: Kubernetes label selector syntax string
+func (p *NamespaceProcessor) ListNamespaces(ctx context.Context, labelSelector string) (*corev1.NamespaceList, error) {
+	return p.k8sClient.CoreV1().Namespaces().List(
+		ctx,
+		metav1.ListOptions{LabelSelector: labelSelector},
+	)
+}
+
+// ProcessNamespace executes the complete namespace audit workflow:
+// 1. Owner annotation validation
+// 2. Domain permission check
+// 3. User existence verification
+// 4. Grace period enforcement
 func (p *NamespaceProcessor) ProcessNamespace(ctx context.Context, ns corev1.Namespace) {
 	email, exists := ns.Annotations[OwnerAnnotation]
 	if !exists || email == "" {
@@ -80,7 +99,7 @@ func (p *NamespaceProcessor) ProcessNamespace(ctx context.Context, ns corev1.Nam
 	}
 }
 
-// handleValidUser cleans up deletion markers for valid users
+// handleValidUser cleans up deletion markers for active users
 func (p *NamespaceProcessor) handleValidUser(ns corev1.Namespace) {
 	if _, exists := ns.Annotations[GracePeriodAnnotation]; exists {
 		log.Printf("Cleaning up grace period annotation from %s", ns.Name)
@@ -102,6 +121,7 @@ func (p *NamespaceProcessor) handleValidUser(ns corev1.Namespace) {
 	}
 }
 
+// handleInvalidUser manages namespaces with unverified users
 func (p *NamespaceProcessor) handleInvalidUser(ns corev1.Namespace) {
 	now := time.Now()
 
@@ -112,17 +132,16 @@ func (p *NamespaceProcessor) handleInvalidUser(ns corev1.Namespace) {
 			return
 		}
 
-		// Check if grace period has expired
 		if now.After(deleteTime.Add(p.gracePeriod)) {
 			p.deleteNamespace(ns)
-			return // Exit after deletion
+			return
 		}
 		return
 	}
 	p.markForDeletion(ns, now)
 }
 
-// isValidDomain checks if an email address has an allowed domain
+// isValidDomain verifies if an email address belongs to an allowed domain
 func isValidDomain(email string, allowedDomains []string) bool {
 	parts := strings.Split(email, "@")
 	if len(parts) != 2 {
@@ -138,6 +157,7 @@ func isValidDomain(email string, allowedDomains []string) bool {
 	return false
 }
 
+// handleInvalidTimestamp cleans up namespaces with malformed timestamps
 func (p *NamespaceProcessor) handleInvalidTimestamp(ns corev1.Namespace) {
 	log.Printf("Invalid timestamp in %s", ns.Name)
 
@@ -157,6 +177,7 @@ func (p *NamespaceProcessor) handleInvalidTimestamp(ns corev1.Namespace) {
 	}
 }
 
+// deleteNamespace permanently removes a namespace after grace period expiration
 func (p *NamespaceProcessor) deleteNamespace(ns corev1.Namespace) {
 	log.Printf("Deleting namespace %s after grace period", ns.Name)
 
@@ -175,13 +196,14 @@ func (p *NamespaceProcessor) deleteNamespace(ns corev1.Namespace) {
 	}
 }
 
+// markForDeletion annotates a namespace with a deletion timestamp
 func (p *NamespaceProcessor) markForDeletion(ns corev1.Namespace, now time.Time) {
 	log.Printf("Marking namespace %s for deletion", ns.Name)
 	if p.dryRun {
 		log.Printf("[DRY RUN] Would add deletion annotation to %s", ns.Name)
 		return
 	}
-	// Ensure annotations map exists
+
 	if ns.Annotations == nil {
 		ns.Annotations = make(map[string]string)
 	}
