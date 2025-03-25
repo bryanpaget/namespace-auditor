@@ -27,10 +27,13 @@ Deployment Steps
    - Add Azure credentials to deploy/secret.yaml
 
 2. Apply to cluster:
-   kubectl apply -f deploy/configmap.yaml  # Domain rules
-   kubectl apply -f deploy/secret.yaml     # Azure credentials
-   kubectl apply -f deploy/rbac.yaml
-   kubectl apply -f deploy/cronjob.yaml
+
+``` bash
+kubectl apply -f deploy/configmap.yaml  # Domain rules
+kubectl apply -f deploy/secret.yaml     # Azure credentials
+kubectl apply -f deploy/rbac.yaml
+kubectl apply -f deploy/cronjob.yaml
+```
 
 Azure Credential Management
 ---------------------------
@@ -40,9 +43,11 @@ Production Cluster:
 
 Local Development:
 - Export matching environment variables:
-  export AZURE_TENANT_ID=<value-from-secret.yaml>
-  export AZURE_CLIENT_ID=<value-from-secret.yaml>
-  export AZURE_CLIENT_SECRET=<value-from-secret.yaml>
+``` bash
+export AZURE_TENANT_ID=<value-from-secret.yaml>
+export AZURE_CLIENT_ID=<value-from-secret.yaml>
+export AZURE_CLIENT_SECRET=<value-from-secret.yaml>
+```
 
 Monitoring & Validation
 -----------------------
