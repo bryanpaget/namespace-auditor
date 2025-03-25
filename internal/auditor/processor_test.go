@@ -13,16 +13,20 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-// MockUserChecker implements UserExistenceChecker for testing
+// MockUserChecker provides a test implementation of UserExistenceChecker
+// Can simulate both successful and failed user existence checks
 type MockUserChecker struct {
-	exists bool
-	err    error
+	exists bool  // Mocked user existence status
+	err    error // Optional error to return
 }
 
+// UserExists implements UserExistenceChecker interface for testing
 func (m *MockUserChecker) UserExists(ctx context.Context, email string) (bool, error) {
 	return m.exists, m.err
 }
 
+// newTestProcessor creates a NamespaceProcessor with test-friendly defaults
+// Pre-populates fake Kubernetes client with provided namespaces
 func newTestProcessor(userExists bool, k8sNamespaces []*corev1.Namespace, dryRun bool) *NamespaceProcessor {
 	fakeClient := fake.NewSimpleClientset()
 	for _, ns := range k8sNamespaces {
@@ -38,6 +42,8 @@ func newTestProcessor(userExists bool, k8sNamespaces []*corev1.Namespace, dryRun
 	}
 }
 
+// captureLogs redirects log output to a buffer for test validation
+// Returns captured logs as a string
 func captureLogs(fn func()) string {
 	var buf strings.Builder
 	log.SetOutput(&buf)
@@ -48,14 +54,16 @@ func captureLogs(fn func()) string {
 	return buf.String()
 }
 
+// TestProcessNamespace validates main namespace processing workflow
+// Covers various scenarios including valid/invalid users and domain checks
 func TestProcessNamespace(t *testing.T) {
 	now := time.Now().Format(time.RFC3339)
 	testCases := []struct {
-		name           string
-		ns             corev1.Namespace
-		userExists     bool
-		expectedLog    string
-		expectModified bool
+		name           string           // Test scenario description
+		ns             corev1.Namespace // Namespace configuration
+		userExists     bool             // Mock user existence status
+		expectedLog    string           // Expected log message pattern
+		expectModified bool             // Whether annotations should change
 	}{
 		{
 			name: "valid user with annotation removal",
@@ -117,7 +125,7 @@ func TestProcessNamespace(t *testing.T) {
 			})
 
 			if !strings.Contains(logOutput, tc.expectedLog) {
-				t.Errorf("Expected log %q not found in: %s", tc.expectedLog, logOutput)
+				t.Errorf("Log validation failed:\nExpected: %q\nActual: %q", tc.expectedLog, logOutput)
 			}
 
 			if tc.expectModified {
@@ -126,11 +134,11 @@ func TestProcessNamespace(t *testing.T) {
 				)
 				if tc.userExists {
 					if _, exists := updatedNs.Annotations[GracePeriodAnnotation]; exists {
-						t.Error("Annotation should have been removed")
+						t.Error("Annotation was not removed as expected")
 					}
 				} else {
 					if _, exists := updatedNs.Annotations[GracePeriodAnnotation]; !exists {
-						t.Error("Annotation should have been added")
+						t.Error("Annotation was not added as expected")
 					}
 				}
 			}
@@ -138,12 +146,14 @@ func TestProcessNamespace(t *testing.T) {
 	}
 }
 
+// TestHandleValidUser validates annotation cleanup logic
+// Ensures grace period annotations are removed for valid users
 func TestHandleValidUser(t *testing.T) {
 	testCases := []struct {
-		name        string
-		ns          corev1.Namespace
-		dryRun      bool
-		expectClean bool
+		name        string           // Test scenario description
+		ns          corev1.Namespace // Namespace configuration
+		dryRun      bool             // Dry-run mode flag
+		expectClean bool             // Whether annotation should be removed
 	}{
 		{
 			name: "remove annotation",
@@ -194,25 +204,27 @@ func TestHandleValidUser(t *testing.T) {
 
 			if tc.expectClean {
 				if _, exists := updatedNs.Annotations[GracePeriodAnnotation]; exists {
-					t.Error("Annotation was not removed")
+					t.Error("Annotation was not removed as expected")
 				}
 			} else if tc.dryRun {
 				if !strings.Contains(logOutput, "[DRY RUN]") {
-					t.Error("Dry run not logged correctly")
+					t.Error("Dry run operation not properly logged")
 				}
 				if _, exists := updatedNs.Annotations[GracePeriodAnnotation]; !exists {
-					t.Error("Dry run should not modify namespace")
+					t.Error("Dry run should not modify annotations")
 				}
 			}
 		})
 	}
 }
 
+// TestHandleInvalidUser validates namespace marking and deletion logic
+// Covers various invalid user scenarios including expired grace periods
 func TestHandleInvalidUser(t *testing.T) {
 	testCases := []struct {
-		name           string
-		ns             corev1.Namespace
-		expectedAction string
+		name           string           // Test scenario description
+		ns             corev1.Namespace // Namespace configuration
+		expectedAction string           // Expected log message pattern
 	}{
 		{
 			name: "mark new namespace",
@@ -220,7 +232,7 @@ func TestHandleInvalidUser(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-ns",
 					Annotations: map[string]string{
-						OwnerAnnotation: "user@example.com", // Valid domain
+						OwnerAnnotation: "user@example.com",
 					},
 				},
 			},
@@ -260,12 +272,13 @@ func TestHandleInvalidUser(t *testing.T) {
 			})
 
 			if !strings.Contains(logOutput, tc.expectedAction) {
-				t.Errorf("Expected action %q not found in logs: %s", tc.expectedAction, logOutput)
+				t.Errorf("Action not performed:\nExpected: %q\nIn logs: %q", tc.expectedAction, logOutput)
 			}
 		})
 	}
 }
 
+// TestErrorHandling validates error recovery and logging
 func TestErrorHandling(t *testing.T) {
 	t.Run("namespace update error", func(t *testing.T) {
 		processor := newTestProcessor(false, nil, false)
@@ -283,11 +296,13 @@ func TestErrorHandling(t *testing.T) {
 		})
 
 		if !strings.Contains(logOutput, "Error cleaning") {
-			t.Error("Expected error handling not found")
+			t.Error("Error handling not properly logged")
 		}
 	})
 }
 
+// TestListNamespaces validates namespace listing functionality
+// Ensures proper filtering using Kubeflow label selector
 func TestListNamespaces(t *testing.T) {
 	testNs := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -302,20 +317,22 @@ func TestListNamespaces(t *testing.T) {
 
 	nsList, err := processor.ListNamespaces(context.TODO(), KubeflowLabel)
 	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
+		t.Fatalf("Unexpected error listing namespaces: %v", err)
 	}
 
 	if len(nsList.Items) != 1 {
-		t.Errorf("Expected 1 namespace, got %d", len(nsList.Items))
+		t.Errorf("Namespace count mismatch: expected 1, got %d", len(nsList.Items))
 	}
 }
 
+// TestIsValidDomain validates email domain verification logic
+// Covers various edge cases and malformed inputs
 func TestIsValidDomain(t *testing.T) {
 	tests := []struct {
-		name    string
-		email   string
-		domains []string
-		want    bool
+		name    string   // Test scenario description
+		email   string   // Input email address
+		domains []string // Allowed domains
+		want    bool     // Expected validation result
 	}{
 		{
 			name:    "valid exact domain",
@@ -347,8 +364,7 @@ func TestIsValidDomain(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := isValidDomain(tt.email, tt.domains)
 			if got != tt.want {
-				t.Errorf("isValidDomain(%q, %v) = %v, want %v",
-					tt.email, tt.domains, got, tt.want)
+				t.Errorf("Validation mismatch for %q:\nExpected: %v\nGot: %v", tt.email, tt.want, got)
 			}
 		})
 	}
