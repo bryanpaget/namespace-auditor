@@ -102,6 +102,7 @@ kubectl logs -l app=namespace-auditor --tail=100
 
 ``` bash
 # Verify ConfigMap values
+
 kubectl get configmap namespace-auditor-config -o yaml
 
 # Inspect secret metadata
