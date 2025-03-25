@@ -1,105 +1,84 @@
-# Namespace Auditor
+Namespace Auditor
+==================
 
 Automated Kubernetes namespace cleaner for Kubeflow profiles with configurable grace periods and domain validation.
 
-```mermaid
-flowchart TD
-    A[Daily CronJob] --> B[Get Namespaces with<br>kubeflow-profile label]
-    B --> C{Has Owner<br>Annotation?}
-    C -->|No| D[Log & Skip]
-    C -->|Yes| E{Valid Domain?}
-    E -->|No| F[Log & Skip]
-    E -->|Yes| G[Check User Exists]
-    G -->|Active| H[Clear Grace Annotation]
-    G -->|Missing| I{Marked Before?}
-    I -->|No| J[Add Deletion Marker]
-    I -->|Yes| K{Grace Expired?}
-    K -->|Yes| L[Delete Namespace]
-    K -->|No| M[Skip]
-```
+Configuration Files
+--------------------
+1. configmap.yaml - Application settings:
+   Location: deploy/configmap.yaml
+   Contents:
+     data:
+       allowed-domains: "company.com,example.org"  # Comma-separated list
+       grace-period: "720h"                       # Duration format
 
-## Key Features
+2. secret.yaml - Azure AD credentials:
+   Location: deploy/secret.yaml
+   Contents:
+     stringData:
+       tenant-id: <AZURE_TENANT_ID>         # Azure directory ID
+       client-id: <AZURE_CLIENT_ID>         # Application ID
+       client-secret: <AZURE_CLIENT_SECRET> # Client secret value
 
-- Daily Maintenance: Runs at midnight UTC
-- Domain Validation: Configurable allowed email domains
-- Grace Period: 90-day buffer before deletion (configurable)
-- Safety Mechanisms: Dry-run mode, audit logging
-- Kubernetes Native: RBAC-enabled service account
+Deployment Steps
+----------------
+1. Edit configuration files:
+   - Update allowed domains in deploy/configmap.yaml
+   - Add Azure credentials to deploy/secret.yaml
 
-## Deployment
+2. Apply to cluster:
+   kubectl apply -f deploy/configmap.yaml  # Domain rules
+   kubectl apply -f deploy/secret.yaml     # Azure credentials
+   kubectl apply -f deploy/rbac.yaml
+   kubectl apply -f deploy/cronjob.yaml
 
-``` bash
-# Build and push image
-make docker-build docker-push
+Azure Credential Management
+---------------------------
+Production Cluster:
+- Credentials stored in secret.yaml
+- Accessed via Kubernetes Secret mount
 
-# Apply Kubernetes manifests
-kubectl apply -f deploy/configmap.yaml
-kubectl apply -f deploy/secret.yaml
-kubectl apply -f deploy/rbac.yaml
-kubectl apply -f deploy/cronjob.yaml
-```
+Local Development:
+- Export matching environment variables:
+  export AZURE_TENANT_ID=<value-from-secret.yaml>
+  export AZURE_CLIENT_ID=<value-from-secret.yaml>
+  export AZURE_CLIENT_SECRET=<value-from-secret.yaml>
 
-## Configuration
+Monitoring & Validation
+-----------------------
+Verify configurations:
+# Check applied ConfigMap values
+kubectl get configmap namespace-auditor-config -o yaml
 
-``` bash
-# configmap.yaml
-allowed-domains: "statcan.gc.ca,cloud.statcan.ca"
-grace-period: "2160h"  # 90 days
+# Inspect secret metadata (values hidden)
+kubectl describe secret azure-creds
 
-# secret.yaml
-azure-creds:
-  tenant-id: <AZURE_TENANT_ID>
-  client-id: <AZURE_CLIENT_ID>
-  client-secret: <AZURE_CLIENT_SECRET>x
-```
+Security Notes
+--------------
+- secret.yaml contains sensitive credentials - never commit to source control
+- configmap.yaml stores non-sensitive configuration
+- Production deployments should use:
+  * SealedSecrets for secret.yaml
+  * Namespace restrictions for configmap.yaml
+  * Network policies limiting access
 
-## Operations
+Testing Workflows
+-----------------
+Local Testing (no Azure):
+- Uses testdata/config.yaml and testdata/namespaces.yaml
+- Run with: make test-local
 
-``` bash
-# Dry-run test
-kubectl set env cronjob/namespace-auditor DRY_RUN="true"
+Cluster Dry Run:
+- Enable via cronjob environment variable:
+  kubectl set env cronjob/namespace-auditor DRY_RUN="true"
 
-# Verify execution
-kubectl get cronjob namespace-auditor -o jsonpath="{.status.lastScheduleTime}"
+Azure Integration Tests:
+- Requires valid secret.yaml credentials
+- Run with: AZURE_INTEGRATION=1 make test-integration
 
-# Inspect annotations
-kubectl get namespaces -o custom-columns=NAME:.metadata.name,ANNOTATIONS:.metadata.annotations
-
-# View logs
-kubectl logs -l app=namespace-auditor --tail=100
-```
-
-## Development
-
-``` bash
-# Run unit tests (non-Azure)
-make test
-
-# Run integration tests (requires Azure creds)
-AZURE_INTEGRATION=1 make test-integration
-
-# Local validation with test data
-make test-local  # Uses testdata/ configs
-```
-
-## Security
-
-- RBAC: Minimal cluster role permissions
-- Secrets: Encrypted storage in production
-- Auditing: All operations logged
-- Network Policy: Cluster-internal access only
-
-## Monitoring
-
-``` bash
-# Check job history
-kubectl get jobs -l app=namespace-auditor
-
-# Verify service account access
-kubectl auth can-i delete namespaces \
-  --as=system:serviceaccount:default:namespace-auditor
-
-# Investigate failures
-kubectl describe cronjob namespace-auditor
-kubectl get events --sort-by=.metadata.creationTimestamp
-```
+Maintenance
+-----------
+- Review configmap.yaml when adding new allowed domains
+- Rotate secret.yaml credentials quarterly
+- Monitor cronjob execution logs:
+  kubectl logs -l app=namespace-auditor --tail=100
