@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -58,28 +59,78 @@ func mustParseDuration(duration string) time.Duration {
 }
 
 func runTestScenario(cfg TestConfig, namespaces []TestNamespace, dryRun bool) {
+	fakeClient := fake.NewSimpleClientset()
+
+	// Pre-create namespaces
+	for _, ns := range namespaces {
+		_, err := fakeClient.CoreV1().Namespaces().Create(
+			context.TODO(),
+			&corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        ns.Name,
+					Annotations: ns.Annotations,
+					Labels:      ns.Labels,
+				},
+			},
+			metav1.CreateOptions{},
+		)
+		if err != nil {
+			log.Printf("Error creating namespace: %v", err)
+		}
+	}
+
+	// Create mock user existence map based on test data
+	existsMap := make(map[string]bool)
+	for _, ns := range namespaces {
+		if email, ok := ns.Annotations[auditor.OwnerAnnotation]; ok {
+			// Default mock behavior: user exists if domain is valid
+			domainValid := isValidDomain(email, strings.Split(cfg.AllowedDomains, ","))
+			existsMap[email] = domainValid
+		}
+	}
+
 	processor := auditor.NewNamespaceProcessor(
-		fake.NewSimpleClientset(),
-		&MockUserChecker{},
+		fakeClient,
+		&MockUserChecker{ExistsMap: existsMap},
 		mustParseDuration(cfg.GracePeriod),
 		strings.Split(cfg.AllowedDomains, ","),
 		dryRun,
 	)
 
-	for _, ns := range namespaces {
-		k8sNs := corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        ns.Name,
-				Annotations: ns.Annotations,
-				Labels:      ns.Labels,
-			},
-		}
-		processor.ProcessNamespace(context.TODO(), k8sNs)
+	nsList, _ := processor.ListNamespaces(context.TODO(), auditor.KubeflowLabel)
+	for _, ns := range nsList.Items {
+		processor.ProcessNamespace(context.TODO(), ns)
 	}
 }
 
-type MockUserChecker struct{}
+type MockUserChecker struct {
+	ExistsMap map[string]bool
+	Err       error
+}
 
 func (m *MockUserChecker) UserExists(ctx context.Context, email string) (bool, error) {
-	return false, nil
+	if m.Err != nil {
+		return false, m.Err
+	}
+	exists, ok := m.ExistsMap[email]
+	if !ok {
+		return false, fmt.Errorf("user %s not in mock data", email)
+	}
+	return exists, nil
+}
+
+// Helper function replicated from processor.go
+func isValidDomain(email string, allowedDomains []string) bool {
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return false
+	}
+	domain := strings.ToLower(parts[1])
+
+	for _, d := range allowedDomains {
+		if strings.EqualFold(domain, d) {
+			return true
+		}
+	}
+	return false
 }

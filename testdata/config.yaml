@@ -1,3 +1,2 @@
-# testdata/config.yaml
 grace-period: "720h" # 30 days
-allowed-domains: "test.example"
+allowed-domains: "test.example, company.com, example.org"

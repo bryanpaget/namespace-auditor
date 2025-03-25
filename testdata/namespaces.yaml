@@ -1,11 +1,43 @@
-- name: valid-user
+- name: valid-user-cleanup
   annotations:
     owner: "valid@test.example"
+    namespace-auditor/delete-at: "2024-01-01T00:00:00Z"
   labels:
     app.kubernetes.io/part-of: kubeflow-profile
 
-- name: invalid-user
+- name: invalid-domain-valid-user
   annotations:
-    owner: "invalid@test.example"
+    owner: "gooduser@invalid-domain.com"
+  labels:
+    app.kubernetes.io/part-of: kubeflow-profile
+
+- name: valid-domain-missing-user
+  annotations:
+    owner: "missing@company.com"
+  labels:
+    app.kubernetes.io/part-of: kubeflow-profile
+
+- name: invalid-timestamp
+  annotations:
+    owner: "user@test.example"
+    namespace-auditor/delete-at: "not-a-real-timestamp"
+  labels:
+    app.kubernetes.io/part-of: kubeflow-profile
+
+- name: no-owner-annotation
+  labels:
+    app.kubernetes.io/part-of: kubeflow-profile
+
+- name: expired-grace-period
+  annotations:
+    owner: "expired@example.org"
+    namespace-auditor/delete-at: "2020-01-01T00:00:00Z"
+  labels:
+    app.kubernetes.io/part-of: kubeflow-profile
+
+- name: dry-run-test
+  annotations:
+    owner: "dryrun@company.com"
+    namespace-auditor/delete-at: "2030-01-01T00:00:00Z" # Future date
   labels:
     app.kubernetes.io/part-of: kubeflow-profile

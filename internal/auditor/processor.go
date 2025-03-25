@@ -12,6 +12,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+func (p *NamespaceProcessor) GetClient() kubernetes.Interface {
+	return p.k8sClient
+}
+
 // Add this method to the NamespaceProcessor
 func (p *NamespaceProcessor) ListNamespaces(ctx context.Context, labelSelector string) (*corev1.NamespaceList, error) {
 	return p.k8sClient.CoreV1().Namespaces().List(
@@ -98,7 +102,6 @@ func (p *NamespaceProcessor) handleValidUser(ns corev1.Namespace) {
 	}
 }
 
-// handleInvalidUser manages namespaces with invalid/missing users
 func (p *NamespaceProcessor) handleInvalidUser(ns corev1.Namespace) {
 	now := time.Now()
 
@@ -109,12 +112,13 @@ func (p *NamespaceProcessor) handleInvalidUser(ns corev1.Namespace) {
 			return
 		}
 
+		// Check if grace period has expired
 		if now.After(deleteTime.Add(p.gracePeriod)) {
 			p.deleteNamespace(ns)
+			return // Exit after deletion
 		}
 		return
 	}
-
 	p.markForDeletion(ns, now)
 }
 
