@@ -1,19 +1,18 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: namespace-auditor  # Name of the CronJob
-
+  name: namespace-auditor # Name of the CronJob
 spec:
-  schedule: "0 0 * * *"  # Runs the job daily at midnight (UTC)
+  schedule: "0 0 * * *" # Runs the job daily at midnight (UTC)
   jobTemplate:
     spec:
       template:
         spec:
-          serviceAccountName: namespace-auditor  # Service account used for permissions
-          restartPolicy: Never  # Ensures the job doesn't restart on failure
+          serviceAccountName: namespace-auditor # Service account used for permissions
+          restartPolicy: Never # Ensures the job doesn't restart on failure
           containers:
-            - name: auditor  # Name of the container running the audit script
-              image: bryanpaget/namespace-auditor:latest  # Container image
+            - name: auditor # Name of the container running the audit script
+              image: bryanpaget/namespace-auditor:latest # Container image
 
               env:
                 # Grace period before taking action on non-compliant namespaces

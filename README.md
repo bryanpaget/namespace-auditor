@@ -141,3 +141,12 @@ AZURE_INTEGRATION=1 make test-integration
 - 📆 Review allowed-domains when adding new email domains
 - 📊 Monitor cronjob execution logs regularly
 - ⚠️ Update grace-period in configmap.yaml as organizational policies change
+
+## Limitations of the Go Implementation (vs. Bash)
+- **Overkill for Small Clusters**: For environments with <100 namespaces, the Go binary introduces unnecessary complexity compared to a simple bash script.
+- **Longer Debugging Cycles**: Requires recompilation after changes vs. instant edits/runs in bash.
+- **External Tool Integration**: Directly using `kubectl`/`az` CLI commands (bash) avoids reinventing auth/API logic that Go would need to implement natively.
+- **Binary Distribution**: Requires cross-compilation for multi-arch clusters, whereas bash works anywhere with coreutils.
+- **Immediate Observability**: Bash’s `echo` debugging and command streaming provide real-time visibility without log aggregation.
+- **Legacy Environment Compatibility**: Older systems without GLIBC upgrades might struggle with static Go binaries, while bash scripts "just work".
+- **Quick Patching**: Hotfixes can be made directly in the script vs. rebuilding/redeploying a Go binary.
